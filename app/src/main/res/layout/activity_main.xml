@@ -1,0 +1,20 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/canvas" android:orientation="vertical" android:padding="12dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+        <EditText android:id="@+id/hostInput" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:hint="PC IP" android:imeOptions="actionDone" android:inputType="textUri" android:textColor="@color/text" android:textColorHint="@color/muted" />
+        <Button android:id="@+id/connectButton" android:layout_width="wrap_content" android:layout_height="48dp" android:text="连接" />
+    </LinearLayout>
+    <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="4dp" android:gravity="center" android:text="未连接" android:textColor="@color/text" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:gravity="center" android:orientation="horizontal">
+        <LinearLayout android:id="@+id/leftButtons" android:layout_width="82dp" android:layout_height="match_parent" android:orientation="vertical">
+            <Button android:id="@+id/left1" style="@style/FunctionButton" android:text="1" /><Button android:id="@+id/left2" style="@style/FunctionButton" android:text="2" /><Button android:id="@+id/left3" style="@style/FunctionButton" android:text="3" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <Button android:id="@+id/shutterButton" android:layout_width="104dp" android:layout_height="104dp" android:background="@drawable/shutter_button" android:text="4" android:textColor="@color/text" android:textSize="26sp" />
+            <SeekBar android:id="@+id/pitchScale" android:layout_width="220dp" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:max="48" android:progress="8" />
+            <TextView android:id="@+id/scaleText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="俯仰比例 1.0x" android:textColor="@color/text" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/rightButtons" android:layout_width="82dp" android:layout_height="match_parent" android:orientation="vertical">
+            <Button android:id="@+id/right1" style="@style/FunctionButton" android:text="1" /><Button android:id="@+id/right2" style="@style/FunctionButton" android:text="2" /><Button android:id="@+id/right3" style="@style/FunctionButton" android:text="3" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
