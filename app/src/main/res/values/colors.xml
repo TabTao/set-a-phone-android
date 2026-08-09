@@ -1,0 +1,7 @@
+<resources>
+    <color name="canvas">#17191D</color>
+    <color name="panel">#252A31</color>
+    <color name="active">#DE354C</color>
+    <color name="muted">#66707D</color>
+    <color name="text">#F3F5F7</color>
+</resources>
