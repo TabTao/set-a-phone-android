@@ -2,12 +2,12 @@ package com.setaphone.remote
 
 import android.app.Activity
 import android.content.Context
-import android.content.res.Configuration
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.view.Surface
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -34,6 +34,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var targetAddress: InetAddress? = null
     private var udpSocket: DatagramSocket? = null
     private var lastPoseAtNanos = 0L
+    private var lastDisplayRotation = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +108,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (!connected || event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        refreshGripButtons()
         val now = System.nanoTime()
         if (now - lastPoseAtNanos < 16_000_000L) return
         lastPoseAtNanos = now
@@ -116,18 +118,19 @@ class MainActivity : Activity(), SensorEventListener {
         SensorManager.getOrientation(matrix, orientation)
         val pitch = Math.toDegrees(orientation[1].toDouble())
         val yaw = Math.toDegrees(orientation[0].toDouble())
-        val grip = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
-        send(JSONObject().put("type", "pose").put("pitch", pitch).put("yaw", yaw).put("orientation", grip))
+        send(JSONObject().put("type", "pose").put("pitch", pitch).put("yaw", yaw).put("orientation", "landscape"))
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); refreshGripButtons() }
-
     private fun refreshGripButtons() {
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        leftButtons.isEnabled = landscape
-        rightButtons.isEnabled = !landscape
-        setGroupEnabled(leftButtons, landscape)
-        setGroupEnabled(rightButtons, !landscape)
+        @Suppress("DEPRECATION")
+        val rotation = windowManager.defaultDisplay.rotation
+        if (rotation == lastDisplayRotation) return
+        lastDisplayRotation = rotation
+        val useLeft = rotation != Surface.ROTATION_270
+        leftButtons.isEnabled = useLeft
+        rightButtons.isEnabled = !useLeft
+        setGroupEnabled(leftButtons, useLeft)
+        setGroupEnabled(rightButtons, !useLeft)
     }
 
     private fun setGroupEnabled(group: View, enabled: Boolean) {
