@@ -47,6 +47,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var arUnavailable = false
     private var activityResumed = false
     private var arActive = false
+    private var poseReferenceMatrix: FloatArray? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,7 +65,10 @@ class MainActivity : Activity(), SensorEventListener {
         connectButton.setOnClickListener { toggleConnection() }
         bindFunction(R.id.left1, "left1"); bindFunction(R.id.left2, "left2"); bindFunction(R.id.left3, "left3")
         bindFunction(R.id.right1, "right1"); bindFunction(R.id.right2, "right2"); bindFunction(R.id.right3, "right3")
-        findViewById<Button>(R.id.shutterButton).setOnClickListener { sendButton("shutter", "tap") }
+        findViewById<Button>(R.id.shutterButton).apply {
+            setOnClickListener { sendButton("shutter", "tap") }
+            setOnLongClickListener { calibratePose(); true }
+        }
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
                 pitchScale = 0.2 + value / 10.0
@@ -103,6 +107,7 @@ class MainActivity : Activity(), SensorEventListener {
         connected = true
         connectButton.text = "断开"
         statusText.text = "已连接 $host:18888"
+        calibratePose()
         send(JSONObject().put("type", "slider").put("value", pitchScale))
     }
 
@@ -143,7 +148,14 @@ class MainActivity : Activity(), SensorEventListener {
             Surface.ROTATION_270 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, aligned)
             else -> matrix.copyInto(aligned)
         }
-        SensorManager.getOrientation(aligned, orientation)
+        val reference = poseReferenceMatrix
+        val relative = if (reference == null) {
+            poseReferenceMatrix = aligned.copyOf()
+            IDENTITY_ROTATION.copyOf()
+        } else {
+            relativeRotation(reference, aligned)
+        }
+        SensorManager.getOrientation(relative, orientation)
         // 重映射后：X 轴是俯仰，Y 轴是水平转动，Z 轴是相机画面旋转。
         val pitch = Math.toDegrees(orientation[1].toDouble())
         val yaw = Math.toDegrees(orientation[2].toDouble())
@@ -163,6 +175,27 @@ class MainActivity : Activity(), SensorEventListener {
             else -> event.values[0] to event.values[1]
         }
         send(JSONObject().put("type", "acceleration").put("x", x).put("y", y).put("z", event.values[2]))
+    }
+
+    private fun calibratePose() {
+        poseReferenceMatrix = null
+        arTracker?.reset()
+        send(JSONObject().put("type", "calibrate"))
+        statusText.text = if (connected) "已归零" else statusText.text
+    }
+
+    private fun relativeRotation(reference: FloatArray, current: FloatArray): FloatArray {
+        val result = FloatArray(9)
+        for (row in 0..2) {
+            for (column in 0..2) {
+                var value = 0f
+                for (index in 0..2) {
+                    value += reference[index * 3 + row] * current[index * 3 + column]
+                }
+                result[row * 3 + column] = value
+            }
+        }
+        return result
     }
 
     private fun refreshGripButtons() {
@@ -191,7 +224,7 @@ class MainActivity : Activity(), SensorEventListener {
         resumeArTracking()
         refreshGripButtons()
     }
-    override fun onPause() { activityResumed = false; if (connected) send(JSONObject().put("type", "focus").put("active", false)); pauseArTracking(); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { activityResumed = false; poseReferenceMatrix = null; if (connected) send(JSONObject().put("type", "focus").put("active", false)); pauseArTracking(); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { arTracker?.close(); udpSocket?.close(); sender.shutdownNow(); super.onDestroy() }
 
     private fun setupArTracking() {
@@ -254,5 +287,8 @@ class MainActivity : Activity(), SensorEventListener {
         else if (requestCode == CAMERA_PERMISSION_REQUEST) statusText.text = "惯性平移"
     }
 
-    companion object { private const val CAMERA_PERMISSION_REQUEST = 21 }
+    companion object {
+        private const val CAMERA_PERMISSION_REQUEST = 21
+        private val IDENTITY_ROTATION = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+    }
 }
