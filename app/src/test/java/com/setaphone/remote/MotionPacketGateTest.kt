@@ -20,6 +20,24 @@ class MotionPacketGateTest {
     }
 
     @Test
+    fun `检测到连续运动后固定频率发送最新姿态`() {
+        val gate = MotionPacketGate()
+        gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.04, 0.0), 20_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.044, 0.0), 40_000_000L))
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.048, 0.0), 60_000_000L))
+    }
+
+    @Test
+    fun `停止运动后退出固定频率发送`() {
+        val gate = MotionPacketGate()
+        gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
+        gate.next(PoseAngles(0.0, 0.04, 0.0), 20_000_000L)
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.04, 0.0), 60_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.04, 0.0), 320_000_000L))
+    }
+
+    @Test
     fun `静止时仅发送心跳维持连接`() {
         val gate = MotionPacketGate()
         val pose = PoseAngles(1.0, 2.0, 3.0)
