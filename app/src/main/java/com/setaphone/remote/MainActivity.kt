@@ -1,9 +1,7 @@
 package com.setaphone.remote
 
 import android.app.Activity
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -11,8 +9,6 @@ import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.Surface
 import android.view.View
-import android.view.ViewGroup
-import android.opengl.GLSurfaceView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.SeekBar
@@ -42,12 +38,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var lastPoseAtNanos = 0L
     private var lastAccelerationAtNanos = 0L
     private var lastDisplayRotation = -1
-    private var arTracker: ArTracker? = null
-    private var arSurface: GLSurfaceView? = null
-    private var arInstallPromptAllowed = true
-    private var arUnavailable = false
-    private var activityResumed = false
-    private var arActive = false
+    private val motionPacketGate = MotionPacketGate()
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
     private var calibrationFramesRemaining = 0
@@ -74,16 +65,13 @@ class MainActivity : Activity(), SensorEventListener {
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
                 rotationScale = 0.01 + value / 100.0
-                findViewById<TextView>(R.id.scaleText).text = "姿态倍率 %.2fx".format(rotationScale)
+                findViewById<TextView>(R.id.scaleText).text = "俯仰倍率 %.2fx".format(rotationScale)
                 if (fromUser) send(JSONObject().put("type", "slider").put("value", rotationScale))
             }
             override fun onStartTrackingTouch(bar: SeekBar) = Unit
             override fun onStopTrackingTouch(bar: SeekBar) = Unit
         })
         refreshGripButtons()
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
-        }
     }
 
     private fun bindFunction(id: Int, name: String) {
@@ -100,6 +88,7 @@ class MainActivity : Activity(), SensorEventListener {
             latestAlignedMatrix = null
             poseReferenceMatrix = null
             calibrationFramesRemaining = 0
+            motionPacketGate.reset()
             connectButton.text = "连接"
             statusText.text = "已断开"
             return
@@ -168,7 +157,14 @@ class MainActivity : Activity(), SensorEventListener {
         val pitch = if (calibrating) 0.0 else Math.toDegrees(orientation[1].toDouble())
         val yaw = if (calibrating) 0.0 else Math.toDegrees(orientation[2].toDouble())
         val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
-        send(JSONObject().put("type", "pose").put("pitch", pitch).put("yaw", yaw).put("roll", roll).put("orientation", "landscape").put("calibrate", calibrating))
+        val pose = PoseAngles(pitch, yaw, roll)
+        when (motionPacketGate.next(pose, now, calibrating)) {
+            MotionPacketKind.POSE -> send(JSONObject().put("type", "pose").put("pitch", pitch)
+                .put("yaw", yaw).put("roll", roll).put("orientation", "landscape")
+                .put("calibrate", calibrating))
+            MotionPacketKind.HEARTBEAT -> send(JSONObject().put("type", "heartbeat"))
+            MotionPacketKind.NONE -> Unit
+        }
     }
 
     private fun sendVerticalAcceleration(event: SensorEvent) {
@@ -182,13 +178,15 @@ class MainActivity : Activity(), SensorEventListener {
             Surface.ROTATION_270 -> -event.values[1] to event.values[0]
             else -> event.values[0] to event.values[1]
         }
-        send(JSONObject().put("type", "acceleration").put("x", x).put("y", y).put("z", event.values[2]))
+        val z = event.values[2]
+        if (maxOf(kotlin.math.abs(x), kotlin.math.abs(y), kotlin.math.abs(z)) < ACCELERATION_SEND_THRESHOLD) return
+        send(JSONObject().put("type", "acceleration").put("x", x).put("y", y).put("z", z))
     }
 
     private fun calibratePose() {
         poseReferenceMatrix = latestAlignedMatrix?.copyOf()
         calibrationFramesRemaining = 3
-        arTracker?.reset()
+        motionPacketGate.reset()
         if (connected) {
             send(JSONObject().put("type", "calibrate"))
             statusText.text = "已请求配对归零"
@@ -228,78 +226,15 @@ class MainActivity : Activity(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
     override fun onResume() {
         super.onResume()
-        activityResumed = true
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         linearAccelerationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED && arTracker == null && !arUnavailable) setupArTracking()
-        resumeArTracking()
         refreshGripButtons()
     }
-    override fun onPause() { activityResumed = false; poseReferenceMatrix = null; calibrationFramesRemaining = 0; if (connected) send(JSONObject().put("type", "focus").put("active", false)); pauseArTracking(); sensorManager.unregisterListener(this); super.onPause() }
-    override fun onDestroy() { arTracker?.close(); udpSocket?.close(); sender.shutdownNow(); super.onDestroy() }
-
-    private fun setupArTracking() {
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
-            return
-        }
-        val tracker = arTracker ?: ArTracker(this, ::send)
-        when (tracker.start(arInstallPromptAllowed)) {
-            ArTracker.StartResult.INSTALL_REQUESTED -> {
-                arInstallPromptAllowed = false
-                statusText.text = "正在安装 ARCore"
-                return
-            }
-            ArTracker.StartResult.UNAVAILABLE -> {
-                arUnavailable = true
-                statusText.text = "惯性平移"
-                return
-            }
-            ArTracker.StartResult.STARTED -> Unit
-        }
-        arTracker = tracker
-        arSurface = GLSurfaceView(this).also { surface ->
-            surface.setEGLContextClientVersion(2)
-            surface.setRenderer(tracker)
-            surface.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
-            surface.alpha = 0.01f
-            addContentView(surface, ViewGroup.LayoutParams(1, 1))
-        }
-        statusText.text = "AR 平移"
-    }
-
-    private fun resumeArTracking() {
-        if (!activityResumed || arActive) return
-        val tracker = arTracker ?: return
-        if (!tracker.resume()) {
-            tracker.close()
-            arTracker = null
-            arUnavailable = true
-            statusText.text = "惯性平移"
-            return
-        }
-        arSurface?.onResume()
-        arActive = true
-    }
-
-    private fun pauseArTracking() {
-        if (!arActive) return
-        arSurface?.onPause()
-        arTracker?.pause()
-        arActive = false
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, results)
-        if (requestCode == CAMERA_PERMISSION_REQUEST && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            setupArTracking()
-            resumeArTracking()
-        }
-        else if (requestCode == CAMERA_PERMISSION_REQUEST) statusText.text = "惯性平移"
-    }
+    override fun onPause() { poseReferenceMatrix = null; calibrationFramesRemaining = 0; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onDestroy() { udpSocket?.close(); sender.shutdownNow(); super.onDestroy() }
 
     companion object {
-        private const val CAMERA_PERMISSION_REQUEST = 21
+        private const val ACCELERATION_SEND_THRESHOLD = 0.3f
         private val IDENTITY_ROTATION = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
     }
 }
