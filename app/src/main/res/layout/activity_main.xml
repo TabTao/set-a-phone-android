@@ -10,8 +10,9 @@
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
             <Button android:id="@+id/shutterButton" android:layout_width="104dp" android:layout_height="104dp" android:background="@drawable/shutter_button" android:text="4" android:textColor="@color/text" android:textSize="26sp" />
-            <SeekBar android:id="@+id/pitchScale" android:layout_width="220dp" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:max="48" android:progress="8" />
-            <TextView android:id="@+id/scaleText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="俯仰比例 1.0x" android:textColor="@color/text" />
+            <Button android:id="@+id/calibrateButton" android:layout_width="wrap_content" android:layout_height="44dp" android:layout_marginTop="8dp" android:text="配对归零" />
+            <SeekBar android:id="@+id/pitchScale" android:layout_width="220dp" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:max="99" android:progress="19" />
+            <TextView android:id="@+id/scaleText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="姿态倍率 0.20x" android:textColor="@color/text" />
         </LinearLayout>
         <LinearLayout android:id="@+id/rightButtons" android:layout_width="82dp" android:layout_height="match_parent" android:orientation="vertical">
             <Button android:id="@+id/right1" style="@style/FunctionButton" android:text="1" /><Button android:id="@+id/right2" style="@style/FunctionButton" android:text="2" /><Button android:id="@+id/right3" style="@style/FunctionButton" android:text="3" />

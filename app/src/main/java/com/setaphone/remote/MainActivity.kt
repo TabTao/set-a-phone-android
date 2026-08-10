@@ -31,11 +31,12 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var hostInput: EditText
     private lateinit var statusText: TextView
     private lateinit var connectButton: Button
+    private lateinit var calibrateButton: Button
     private lateinit var leftButtons: View
     private lateinit var rightButtons: View
     private var connected = false
     private var host = ""
-    private var pitchScale = 1.0
+    private var rotationScale = 0.2
     private var targetAddress: InetAddress? = null
     private var udpSocket: DatagramSocket? = null
     private var lastPoseAtNanos = 0L
@@ -48,6 +49,8 @@ class MainActivity : Activity(), SensorEventListener {
     private var activityResumed = false
     private var arActive = false
     private var poseReferenceMatrix: FloatArray? = null
+    private var latestAlignedMatrix: FloatArray? = null
+    private var calibrationFramesRemaining = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +61,7 @@ class MainActivity : Activity(), SensorEventListener {
         hostInput = findViewById(R.id.hostInput)
         statusText = findViewById(R.id.statusText)
         connectButton = findViewById(R.id.connectButton)
+        calibrateButton = findViewById(R.id.calibrateButton)
         leftButtons = findViewById(R.id.leftButtons)
         rightButtons = findViewById(R.id.rightButtons)
         hostInput.setText(getPreferences(MODE_PRIVATE).getString("host", ""))
@@ -65,15 +69,13 @@ class MainActivity : Activity(), SensorEventListener {
         connectButton.setOnClickListener { toggleConnection() }
         bindFunction(R.id.left1, "left1"); bindFunction(R.id.left2, "left2"); bindFunction(R.id.left3, "left3")
         bindFunction(R.id.right1, "right1"); bindFunction(R.id.right2, "right2"); bindFunction(R.id.right3, "right3")
-        findViewById<Button>(R.id.shutterButton).apply {
-            setOnClickListener { sendButton("shutter", "tap") }
-            setOnLongClickListener { calibratePose(); true }
-        }
+        findViewById<Button>(R.id.shutterButton).setOnClickListener { sendButton("shutter", "tap") }
+        calibrateButton.setOnClickListener { calibratePose() }
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
-                pitchScale = 0.2 + value / 10.0
-                findViewById<TextView>(R.id.scaleText).text = "俯仰比例 %.1fx".format(pitchScale)
-                if (fromUser) send(JSONObject().put("type", "slider").put("value", pitchScale))
+                rotationScale = 0.01 + value / 100.0
+                findViewById<TextView>(R.id.scaleText).text = "姿态倍率 %.2fx".format(rotationScale)
+                if (fromUser) send(JSONObject().put("type", "slider").put("value", rotationScale))
             }
             override fun onStartTrackingTouch(bar: SeekBar) = Unit
             override fun onStopTrackingTouch(bar: SeekBar) = Unit
@@ -95,6 +97,9 @@ class MainActivity : Activity(), SensorEventListener {
         if (connected) {
             send(JSONObject().put("type", "focus").put("active", false))
             connected = false
+            latestAlignedMatrix = null
+            poseReferenceMatrix = null
+            calibrationFramesRemaining = 0
             connectButton.text = "连接"
             statusText.text = "已断开"
             return
@@ -108,7 +113,7 @@ class MainActivity : Activity(), SensorEventListener {
         connectButton.text = "断开"
         statusText.text = "已连接 $host:18888"
         calibratePose()
-        send(JSONObject().put("type", "slider").put("value", pitchScale))
+        send(JSONObject().put("type", "slider").put("value", rotationScale))
     }
 
     private fun sendButton(button: String, action: String) = send(
@@ -148,6 +153,7 @@ class MainActivity : Activity(), SensorEventListener {
             Surface.ROTATION_270 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, aligned)
             else -> matrix.copyInto(aligned)
         }
+        latestAlignedMatrix = aligned.copyOf()
         val reference = poseReferenceMatrix
         val relative = if (reference == null) {
             poseReferenceMatrix = aligned.copyOf()
@@ -157,10 +163,12 @@ class MainActivity : Activity(), SensorEventListener {
         }
         SensorManager.getOrientation(relative, orientation)
         // 重映射后：X 轴是俯仰，Y 轴是水平转动，Z 轴是相机画面旋转。
-        val pitch = Math.toDegrees(orientation[1].toDouble())
-        val yaw = Math.toDegrees(orientation[2].toDouble())
-        val roll = Math.toDegrees(orientation[0].toDouble())
-        send(JSONObject().put("type", "pose").put("pitch", pitch).put("yaw", yaw).put("roll", roll).put("orientation", "landscape"))
+        val calibrating = calibrationFramesRemaining > 0
+        if (calibrating) calibrationFramesRemaining--
+        val pitch = if (calibrating) 0.0 else Math.toDegrees(orientation[1].toDouble())
+        val yaw = if (calibrating) 0.0 else Math.toDegrees(orientation[2].toDouble())
+        val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
+        send(JSONObject().put("type", "pose").put("pitch", pitch).put("yaw", yaw).put("roll", roll).put("orientation", "landscape").put("calibrate", calibrating))
     }
 
     private fun sendVerticalAcceleration(event: SensorEvent) {
@@ -178,10 +186,13 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun calibratePose() {
-        poseReferenceMatrix = null
+        poseReferenceMatrix = latestAlignedMatrix?.copyOf()
+        calibrationFramesRemaining = 3
         arTracker?.reset()
-        send(JSONObject().put("type", "calibrate"))
-        statusText.text = if (connected) "已归零" else statusText.text
+        if (connected) {
+            send(JSONObject().put("type", "calibrate"))
+            statusText.text = "已请求配对归零"
+        }
     }
 
     private fun relativeRotation(reference: FloatArray, current: FloatArray): FloatArray {
@@ -224,7 +235,7 @@ class MainActivity : Activity(), SensorEventListener {
         resumeArTracking()
         refreshGripButtons()
     }
-    override fun onPause() { activityResumed = false; poseReferenceMatrix = null; if (connected) send(JSONObject().put("type", "focus").put("active", false)); pauseArTracking(); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { activityResumed = false; poseReferenceMatrix = null; calibrationFramesRemaining = 0; if (connected) send(JSONObject().put("type", "focus").put("active", false)); pauseArTracking(); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { arTracker?.close(); udpSocket?.close(); sender.shutdownNow(); super.onDestroy() }
 
     private fun setupArTracking() {
