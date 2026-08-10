@@ -7,7 +7,7 @@ data class PoseAngles(val pitch: Double, val yaw: Double, val roll: Double)
 enum class MotionPacketKind { POSE, HEARTBEAT, NONE }
 
 class MotionPacketGate(
-    private val poseThresholdDegrees: Double = 0.12,
+    private val poseThresholdDegrees: Double = 0.03,
     private val heartbeatIntervalNanos: Long = 1_000_000_000L,
 ) {
     private var lastPose: PoseAngles? = null

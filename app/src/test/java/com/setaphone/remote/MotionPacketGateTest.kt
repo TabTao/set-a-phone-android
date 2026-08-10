@@ -8,7 +8,7 @@ class MotionPacketGateTest {
     fun `微小姿态颤动不会发送运动包`() {
         val gate = MotionPacketGate()
         assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.0, 0.0), 0L))
-        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.04, -0.05, 0.03), 20_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.01, -0.02, 0.02), 20_000_000L))
     }
 
     @Test

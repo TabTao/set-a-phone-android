@@ -40,6 +40,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var targetAddress: InetAddress? = null
     private var udpSocket: DatagramSocket? = null
     private var lastPoseAtNanos = 0L
+    private var poseSequence = 0L
     private var lastAccelerationAtNanos = 0L
     private var lastDisplayRotation = -1
     private val motionPacketGate = MotionPacketGate()
@@ -185,9 +186,12 @@ class MainActivity : Activity(), SensorEventListener {
         val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
         val pose = PoseAngles(pitch, yaw, roll)
         when (motionPacketGate.next(pose, now, calibrating)) {
-            MotionPacketKind.POSE -> sendPose(JSONObject().put("type", "pose").put("pitch", pitch)
-                .put("yaw", yaw).put("roll", roll).put("orientation", "landscape")
-                .put("calibrate", calibrating))
+            MotionPacketKind.POSE -> sendPose(
+                JSONObject().put("type", "pose").put("pitch", pitch)
+                    .put("yaw", yaw).put("roll", roll).put("orientation", "landscape")
+                    .put("sequence", ++poseSequence).put("sensorNanos", now)
+                    .put("calibrate", calibrating)
+            )
             MotionPacketKind.HEARTBEAT -> send(JSONObject().put("type", "heartbeat"))
             MotionPacketKind.NONE -> Unit
         }
