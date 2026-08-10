@@ -186,16 +186,21 @@ class MainActivity : Activity(), SensorEventListener {
         val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
         val pose = PoseAngles(pitch, yaw, roll)
         when (motionPacketGate.next(pose, now, calibrating)) {
-            MotionPacketKind.POSE -> sendPose(
-                JSONObject().put("type", "pose").put("pitch", pitch)
-                    .put("yaw", yaw).put("roll", roll).put("orientation", "landscape")
-                    .put("sequence", ++poseSequence).put("sensorNanos", now)
-                    .put("calibrate", calibrating)
-            )
+            MotionPacketKind.POSE -> {
+                val sentPose = PoseAngles(roundPose(pitch), roundPose(yaw), roundPose(roll))
+                sendPose(
+                    JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
+                        .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", "landscape")
+                        .put("sequence", ++poseSequence).put("sensorNanos", now)
+                        .put("calibrate", calibrating)
+                )
+            }
             MotionPacketKind.HEARTBEAT -> send(JSONObject().put("type", "heartbeat"))
             MotionPacketKind.NONE -> Unit
         }
     }
+
+    private fun roundPose(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
 
     private fun sendVerticalAcceleration(event: SensorEvent) {
         val now = System.nanoTime()

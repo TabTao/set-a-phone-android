@@ -15,17 +15,28 @@ class MotionPacketGateTest {
     fun `缓慢转动累计超过阈值后发送`() {
         val gate = MotionPacketGate()
         gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
-        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.07, 0.0), 20_000_000L))
-        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.13, 0.0), 40_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.01, 0.0), 20_000_000L))
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.04, 0.0), 40_000_000L))
     }
 
     @Test
-    fun `检测到连续运动后固定频率发送最新姿态`() {
+    fun `检测到连续运动后按十赫兹发送最新姿态`() {
         val gate = MotionPacketGate()
         gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
         assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.04, 0.0), 20_000_000L))
         assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.044, 0.0), 40_000_000L))
-        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.048, 0.0), 60_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.048, 0.0), 60_000_000L))
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.052, 0.0), 120_000_000L))
+    }
+
+    @Test
+    fun `快速转动不会突破固定发送频率`() {
+        val gate = MotionPacketGate()
+        gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 1.0, 0.0), 20_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 2.0, 0.0), 40_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 3.0, 0.0), 80_000_000L))
+        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 4.0, 0.0), 120_000_000L))
     }
 
     @Test
@@ -33,7 +44,7 @@ class MotionPacketGateTest {
         val gate = MotionPacketGate()
         gate.next(PoseAngles(0.0, 0.0, 0.0), 0L)
         gate.next(PoseAngles(0.0, 0.04, 0.0), 20_000_000L)
-        assertEquals(MotionPacketKind.POSE, gate.next(PoseAngles(0.0, 0.04, 0.0), 60_000_000L))
+        assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.04, 0.0), 60_000_000L))
         assertEquals(MotionPacketKind.NONE, gate.next(PoseAngles(0.0, 0.04, 0.0), 320_000_000L))
     }
 

@@ -9,7 +9,7 @@ enum class MotionPacketKind { POSE, HEARTBEAT, NONE }
 class MotionPacketGate(
     private val poseThresholdDegrees: Double = 0.03,
     private val motionContinueThresholdDegrees: Double = 0.002,
-    private val movingPoseIntervalNanos: Long = 33_333_333L,
+    private val movingPoseIntervalNanos: Long = 100_000_000L,
     private val motionHoldNanos: Long = 250_000_000L,
     private val heartbeatIntervalNanos: Long = 1_000_000_000L,
 ) {
@@ -28,14 +28,16 @@ class MotionPacketGate(
             return MotionPacketKind.POSE
         }
 
-        val startedMoving = changed(previousSent, pose, poseThresholdDegrees)
-        val stillMoving = previousObserved != null &&
+        val wasMoving = nowNanos <= movingUntilNanos
+        val startedMoving = !wasMoving && changed(previousSent, pose, poseThresholdDegrees)
+        val stillMoving = wasMoving && previousObserved != null &&
             changed(previousObserved, pose, motionContinueThresholdDegrees)
         if (startedMoving || stillMoving) {
             movingUntilNanos = nowNanos + motionHoldNanos
         }
-        if (startedMoving ||
-            (nowNanos <= movingUntilNanos && nowNanos - lastPacketAtNanos >= movingPoseIntervalNanos)
+        val isMoving = nowNanos <= movingUntilNanos
+        if ((!wasMoving && isMoving) ||
+            (isMoving && nowNanos - lastPacketAtNanos >= movingPoseIntervalNanos)
         ) {
             lastSentPose = pose
             lastPacketAtNanos = nowNanos
