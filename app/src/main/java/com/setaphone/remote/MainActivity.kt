@@ -18,9 +18,13 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : Activity(), SensorEventListener {
     private val sender = Executors.newSingleThreadExecutor()
+    private val pendingPose = AtomicReference<ByteArray?>(null)
+    private val poseSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
     private var linearAccelerationSensor: Sensor? = null
@@ -113,12 +117,34 @@ class MainActivity : Activity(), SensorEventListener {
         if (!connected || host.isBlank()) return
         sender.execute {
             runCatching {
-                val bytes = payload.toString().toByteArray(Charsets.UTF_8)
-                val address = targetAddress ?: InetAddress.getByName(host).also { targetAddress = it }
-                val socket = udpSocket ?: DatagramSocket().also { udpSocket = it }
-                socket.send(DatagramPacket(bytes, bytes.size, address, 18888))
+                sendBytes(payload.toString().toByteArray(Charsets.UTF_8))
             }
         }
+    }
+
+    // 姿态只保留最新值，避免传感器频率高时排队发送旧姿态。
+    private fun sendPose(payload: JSONObject) {
+        if (!connected || host.isBlank()) return
+        pendingPose.set(payload.toString().toByteArray(Charsets.UTF_8))
+        if (!poseSendScheduled.compareAndSet(false, true)) return
+        sender.execute { drainPoses() }
+    }
+
+    private fun drainPoses() {
+        while (true) {
+            val bytes = pendingPose.getAndSet(null) ?: break
+            runCatching { sendBytes(bytes) }
+        }
+        poseSendScheduled.set(false)
+        if (pendingPose.get() != null && poseSendScheduled.compareAndSet(false, true)) {
+            sender.execute { drainPoses() }
+        }
+    }
+
+    private fun sendBytes(bytes: ByteArray) {
+        val address = targetAddress ?: InetAddress.getByName(host).also { targetAddress = it }
+        val socket = udpSocket ?: DatagramSocket().also { udpSocket = it }
+        socket.send(DatagramPacket(bytes, bytes.size, address, 18888))
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -159,7 +185,7 @@ class MainActivity : Activity(), SensorEventListener {
         val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
         val pose = PoseAngles(pitch, yaw, roll)
         when (motionPacketGate.next(pose, now, calibrating)) {
-            MotionPacketKind.POSE -> send(JSONObject().put("type", "pose").put("pitch", pitch)
+            MotionPacketKind.POSE -> sendPose(JSONObject().put("type", "pose").put("pitch", pitch)
                 .put("yaw", yaw).put("roll", roll).put("orientation", "landscape")
                 .put("calibrate", calibrating))
             MotionPacketKind.HEARTBEAT -> send(JSONObject().put("type", "heartbeat"))
@@ -173,14 +199,15 @@ class MainActivity : Activity(), SensorEventListener {
         lastAccelerationAtNanos = now
         @Suppress("DEPRECATION")
         val rotation = windowManager.defaultDisplay.rotation
-        val (x, y) = when (rotation) {
+        val (screenX, screenY) = when (rotation) {
             Surface.ROTATION_90 -> event.values[1] to -event.values[0]
             Surface.ROTATION_270 -> -event.values[1] to event.values[0]
             else -> event.values[0] to event.values[1]
         }
         val z = event.values[2]
-        if (maxOf(kotlin.math.abs(x), kotlin.math.abs(y), kotlin.math.abs(z)) < ACCELERATION_SEND_THRESHOLD) return
-        send(JSONObject().put("type", "acceleration").put("x", x).put("y", y).put("z", z))
+        if (maxOf(kotlin.math.abs(screenX), kotlin.math.abs(screenY), kotlin.math.abs(z)) < ACCELERATION_SEND_THRESHOLD) return
+        // 协议 X 固定表示手机抬举，Y 表示左右平移。
+        send(JSONObject().put("type", "acceleration").put("x", screenY).put("y", screenX).put("z", z))
     }
 
     private fun calibratePose() {
