@@ -2,7 +2,7 @@ name: 构建安卓安装包
 
 on:
   push:
-    branches: [main]
+    branches: [main, upload-from-remote]
   workflow_dispatch:
 
 permissions:
