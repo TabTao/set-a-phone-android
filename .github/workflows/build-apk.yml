@@ -37,13 +37,20 @@ jobs:
       - name: 运行单元测试并构建 Debug APK
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
+      - name: 配置 Android 模拟器硬件加速权限
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: 在 Android 模拟器启动验证
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_5
+          force-avd-creation: true
           ram-size: 2048M
           heap-size: 512M
           emulator-boot-timeout: 900
