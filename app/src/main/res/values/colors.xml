@@ -4,4 +4,6 @@
     <color name="active">#DE354C</color>
     <color name="muted">#66707D</color>
     <color name="text">#F3F5F7</color>
+    <color name="preview">#080A0C</color>
+    <color name="control_stroke">#3B424B</color>
 </resources>

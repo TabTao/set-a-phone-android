@@ -11,18 +11,26 @@ import android.view.Surface
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.graphics.BitmapFactory
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class MainActivity : Activity(), SensorEventListener {
     private val sender = Executors.newSingleThreadExecutor()
+    private val previewReceiver = Executors.newSingleThreadExecutor()
+    private val previewRunning = AtomicBoolean(false)
+    private val previewGeneration = AtomicLong(0)
     private val pendingPose = AtomicReference<ByteArray?>(null)
     private val poseSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
@@ -32,6 +40,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var statusText: TextView
     private lateinit var connectButton: Button
     private lateinit var calibrateButton: Button
+    private lateinit var cameraPreview: ImageView
     private lateinit var leftButtons: View
     private lateinit var rightButtons: View
     private var connected = false
@@ -58,6 +67,7 @@ class MainActivity : Activity(), SensorEventListener {
         statusText = findViewById(R.id.statusText)
         connectButton = findViewById(R.id.connectButton)
         calibrateButton = findViewById(R.id.calibrateButton)
+        cameraPreview = findViewById(R.id.cameraPreview)
         leftButtons = findViewById(R.id.leftButtons)
         rightButtons = findViewById(R.id.rightButtons)
         hostInput.setText(getPreferences(MODE_PRIVATE).getString("host", ""))
@@ -70,7 +80,7 @@ class MainActivity : Activity(), SensorEventListener {
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
                 rotationScale = 0.01 + value / 100.0
-                findViewById<TextView>(R.id.scaleText).text = "俯仰倍率 %.2fx".format(rotationScale)
+                findViewById<TextView>(R.id.scaleText).text = "倍率 %.2fx".format(rotationScale)
                 if (fromUser) send(JSONObject().put("type", "slider").put("value", rotationScale))
             }
             override fun onStartTrackingTouch(bar: SeekBar) = Unit
@@ -94,6 +104,7 @@ class MainActivity : Activity(), SensorEventListener {
             poseReferenceMatrix = null
             calibrationFramesRemaining = 0
             motionPacketGate.reset()
+            stopPreview()
             connectButton.text = "连接"
             statusText.text = "已断开"
             return
@@ -108,6 +119,7 @@ class MainActivity : Activity(), SensorEventListener {
         statusText.text = "已连接 $host:18888"
         calibratePose()
         send(JSONObject().put("type", "slider").put("value", rotationScale))
+        cameraPreview.postDelayed({ startPreview() }, 200)
     }
 
     private fun sendButton(button: String, action: String) = send(
@@ -146,6 +158,51 @@ class MainActivity : Activity(), SensorEventListener {
         val address = targetAddress ?: InetAddress.getByName(host).also { targetAddress = it }
         val socket = udpSocket ?: DatagramSocket().also { udpSocket = it }
         socket.send(DatagramPacket(bytes, bytes.size, address, 18888))
+    }
+
+    private fun startPreview() {
+        stopPreview()
+        if (!connected || host.isBlank()) return
+        val generation = previewGeneration.incrementAndGet()
+        previewRunning.set(true)
+        val shortSide = minOf(cameraPreview.width, cameraPreview.height).coerceAtLeast(1)
+        previewReceiver.execute {
+            while (previewRunning.get() && previewGeneration.get() == generation && connected) {
+                var connection: HttpURLConnection? = null
+                try {
+                    val endpoint = URL("http://$host:18889/camera.jpg?shortSide=$shortSide")
+                    connection = endpoint.openConnection() as HttpURLConnection
+                    connection.connectTimeout = 1_200
+                    connection.readTimeout = 1_800
+                    connection.useCaches = false
+                    connection.inputStream.use { stream ->
+                        val bitmap = BitmapFactory.decodeStream(stream)
+                        if (bitmap != null && previewRunning.get() && previewGeneration.get() == generation) {
+                            runOnUiThread {
+                                if (previewRunning.get() && previewGeneration.get() == generation) {
+                                    cameraPreview.setImageBitmap(bitmap)
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // 预览和控制通道分离，单帧失败不影响姿态与按键发送。
+                } finally {
+                    connection?.disconnect()
+                }
+                try {
+                    Thread.sleep(80)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopPreview() {
+        previewRunning.set(false)
+        previewGeneration.incrementAndGet()
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -265,9 +322,10 @@ class MainActivity : Activity(), SensorEventListener {
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         linearAccelerationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         refreshGripButtons()
+        if (connected) cameraPreview.post { startPreview() }
     }
-    override fun onPause() { poseReferenceMatrix = null; calibrationFramesRemaining = 0; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
-    override fun onDestroy() { udpSocket?.close(); sender.shutdownNow(); super.onDestroy() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; calibrationFramesRemaining = 0; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
         private const val ACCELERATION_SEND_THRESHOLD = 0.3f
