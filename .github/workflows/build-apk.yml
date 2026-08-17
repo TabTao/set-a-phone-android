@@ -41,9 +41,13 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: default
+          target: google_apis
           arch: x86_64
-          profile: pixel_2
+          profile: pixel_5
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -no-snapshot-load -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
