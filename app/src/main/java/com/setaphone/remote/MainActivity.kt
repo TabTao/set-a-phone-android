@@ -253,7 +253,7 @@ class MainActivity : Activity(), SensorEventListener {
                 val sentPose = PoseAngles(roundPose(pitch), roundPose(yaw), roundPose(roll))
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
-                        .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", "landscape")
+                        .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", "portrait")
                         .put("sequence", ++poseSequence).put("sensorNanos", now)
                         .put("calibrate", calibrating)
                 )
