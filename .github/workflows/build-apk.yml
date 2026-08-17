@@ -37,6 +37,22 @@ jobs:
       - name: 运行单元测试并构建 Debug APK
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
+      - name: 在 Android 模拟器启动验证
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -n com.setaphone.remote/.MainActivity
+            sleep 8
+            adb logcat -d
+            test -n "$(adb shell pidof com.setaphone.remote)"
+
       - name: 上传 Debug APK
         uses: actions/upload-artifact@v4
         with:
