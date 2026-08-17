@@ -41,8 +41,11 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var connectButton: Button
     private lateinit var calibrateButton: Button
     private lateinit var cameraPreview: ImageView
-    private lateinit var leftButtons: View
-    private lateinit var rightButtons: View
+    private lateinit var menuOptions: View
+    private lateinit var adjustmentPanel: View
+    private lateinit var previewModeButton: Button
+    private var previewPath = "camera.jpg"
+    private var showingScene = false
     private var connected = false
     private var host = ""
     private var rotationScale = 0.2
@@ -51,7 +54,6 @@ class MainActivity : Activity(), SensorEventListener {
     private var lastPoseAtNanos = 0L
     private var poseSequence = 0L
     private var lastAccelerationAtNanos = 0L
-    private var lastDisplayRotation = -1
     private val motionPacketGate = MotionPacketGate()
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
@@ -68,15 +70,21 @@ class MainActivity : Activity(), SensorEventListener {
         connectButton = findViewById(R.id.connectButton)
         calibrateButton = findViewById(R.id.calibrateButton)
         cameraPreview = findViewById(R.id.cameraPreview)
-        leftButtons = findViewById(R.id.leftButtons)
-        rightButtons = findViewById(R.id.rightButtons)
+        menuOptions = findViewById(R.id.menuOptions)
+        adjustmentPanel = findViewById(R.id.adjustmentPanel)
+        previewModeButton = findViewById(R.id.previewModeButton)
         hostInput.setText(getPreferences(MODE_PRIVATE).getString("host", ""))
 
         connectButton.setOnClickListener { toggleConnection() }
-        bindFunction(R.id.left1, "left1"); bindFunction(R.id.left2, "left2"); bindFunction(R.id.left3, "left3")
-        bindFunction(R.id.right1, "right1"); bindFunction(R.id.right2, "right2"); bindFunction(R.id.right3, "right3")
         findViewById<Button>(R.id.shutterButton).setOnClickListener { sendButton("shutter", "tap") }
         calibrateButton.setOnClickListener { calibratePose() }
+        findViewById<View>(R.id.menuButton).setOnClickListener {
+            menuOptions.visibility = if (menuOptions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            if (menuOptions.visibility != View.VISIBLE) adjustmentPanel.visibility = View.GONE
+        }
+        findViewById<Button>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
+        findViewById<Button>(R.id.placeholderButton).setOnClickListener { adjustmentPanel.visibility = View.GONE }
+        previewModeButton.setOnClickListener { togglePreviewSource() }
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
                 rotationScale = 0.01 + value / 100.0
@@ -86,14 +94,13 @@ class MainActivity : Activity(), SensorEventListener {
             override fun onStartTrackingTouch(bar: SeekBar) = Unit
             override fun onStopTrackingTouch(bar: SeekBar) = Unit
         })
-        refreshGripButtons()
     }
 
-    private fun bindFunction(id: Int, name: String) {
-        findViewById<Button>(id).apply {
-            setOnClickListener { sendButton(name, "tap") }
-            setOnLongClickListener { sendButton(name, "long"); true }
-        }
+    private fun togglePreviewSource() {
+        showingScene = !showingScene
+        previewPath = if (showingScene) "scene.jpg" else "camera.jpg"
+        previewModeButton.text = if (showingScene) "相机" else "场景"
+        if (connected) cameraPreview.post { startPreview() }
     }
 
     private fun toggleConnection() {
@@ -170,7 +177,7 @@ class MainActivity : Activity(), SensorEventListener {
             while (previewRunning.get() && previewGeneration.get() == generation && connected) {
                 var connection: HttpURLConnection? = null
                 try {
-                    val endpoint = URL("http://$host:18889/camera.jpg?shortSide=$shortSide")
+                    val endpoint = URL("http://$host:18889/$previewPath?shortSide=$shortSide")
                     connection = endpoint.openConnection() as HttpURLConnection
                     connection.connectTimeout = 1_200
                     connection.readTimeout = 1_800
@@ -207,7 +214,6 @@ class MainActivity : Activity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (!connected) return
-        refreshGripButtons()
         if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
             sendVerticalAcceleration(event)
             return
@@ -300,28 +306,11 @@ class MainActivity : Activity(), SensorEventListener {
         return result
     }
 
-    private fun refreshGripButtons() {
-        @Suppress("DEPRECATION")
-        val rotation = windowManager.defaultDisplay.rotation
-        if (rotation == lastDisplayRotation) return
-        lastDisplayRotation = rotation
-        val useLeft = rotation != Surface.ROTATION_270
-        leftButtons.isEnabled = useLeft
-        rightButtons.isEnabled = !useLeft
-        setGroupEnabled(leftButtons, useLeft)
-        setGroupEnabled(rightButtons, !useLeft)
-    }
-
-    private fun setGroupEnabled(group: View, enabled: Boolean) {
-        if (group is android.view.ViewGroup) for (index in 0 until group.childCount) group.getChildAt(index).isEnabled = enabled
-    }
-
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
     override fun onResume() {
         super.onResume()
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         linearAccelerationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
-        refreshGripButtons()
         if (connected) cameraPreview.post { startPreview() }
     }
     override fun onPause() { stopPreview(); poseReferenceMatrix = null; calibrationFramesRemaining = 0; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
