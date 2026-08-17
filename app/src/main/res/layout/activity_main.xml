@@ -74,14 +74,20 @@
         <Button
             android:id="@+id/multiplierButton"
             style="@style/CameraIconButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
             android:text="倍率" />
         <Button
             android:id="@+id/calibrateButton"
             style="@style/CameraIconButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
             android:text="归零" />
         <Button
             android:id="@+id/placeholderButton"
             style="@style/CameraIconButton"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
             android:text="占位" />
     </LinearLayout>
     <LinearLayout
