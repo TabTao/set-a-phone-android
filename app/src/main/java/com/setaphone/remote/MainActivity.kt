@@ -86,8 +86,8 @@ class MainActivity : Activity(), SensorEventListener {
                     .withEndAction { menuOptions.visibility = View.GONE }.start()
                 adjustmentPanel.visibility = View.GONE
             } else {
-                menuOptions.translationX(slideDistance())
-                menuOptions.alpha(0f)
+                menuOptions.translationX = slideDistance()
+                menuOptions.alpha = 0f
                 menuOptions.visibility = View.VISIBLE
                 menuOptions.animate().translationXBy(-slideDistance()).alphaBy(1f).setDuration(180).start()
             }
