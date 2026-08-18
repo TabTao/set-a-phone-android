@@ -3,6 +3,7 @@ package com.setaphone.remote
 import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -16,7 +17,6 @@ import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -59,6 +59,8 @@ class MainActivity : Activity(), SensorEventListener {
     private val motionPacketGate = MotionPacketGate()
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
+    private var latestRawAlignedMatrix: FloatArray? = null
+    private var gripCoordinateCorrection180 = false
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
     private var pendingInitialCalibration = false
@@ -120,7 +122,9 @@ class MainActivity : Activity(), SensorEventListener {
             send(JSONObject().put("type", "focus").put("active", false))
             connected = false
             latestAlignedMatrix = null
+            latestRawAlignedMatrix = null
             poseReferenceMatrix = null
+            gripCoordinateCorrection180 = false
             calibrationFramesRemaining = 0
             pendingInitialCalibration = false
             motionPacketGate.reset()
@@ -257,21 +261,24 @@ class MainActivity : Activity(), SensorEventListener {
         @Suppress("DEPRECATION")
         when (windowManager.defaultDisplay.rotation) {
             Surface.ROTATION_90 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_Y, SensorManager.AXIS_MINUS_X, aligned)
+            Surface.ROTATION_180 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_MINUS_X, SensorManager.AXIS_MINUS_Y, aligned)
             Surface.ROTATION_270 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, aligned)
             else -> matrix.copyInto(aligned)
         }
-        latestAlignedMatrix = aligned.copyOf()
+        latestRawAlignedMatrix = aligned.copyOf()
         if (connected && pendingInitialCalibration) {
             pendingInitialCalibration = false
-            calibratePose()
+            calibratePose(aligned)
         }
         if (!connected) return
+        val canonicalAligned = applyGripCorrection(aligned, gripCoordinateCorrection180)
+        latestAlignedMatrix = canonicalAligned.copyOf()
         val reference = poseReferenceMatrix
         val relative = if (reference == null) {
-            poseReferenceMatrix = aligned.copyOf()
+            poseReferenceMatrix = canonicalAligned.copyOf()
             IDENTITY_ROTATION.copyOf()
         } else {
-            relativeRotation(reference, aligned)
+            relativeRotation(reference, canonicalAligned)
         }
         SensorManager.getOrientation(relative, orientation)
         // 重映射后：X 轴是俯仰，Y 轴是水平转动，Z 轴是相机画面旋转。
@@ -315,8 +322,8 @@ class MainActivity : Activity(), SensorEventListener {
         send(JSONObject().put("type", "acceleration").put("x", screenY).put("y", screenX).put("z", z))
     }
 
-    private fun calibratePose() {
-        val currentMatrix = latestAlignedMatrix
+    private fun calibratePose(currentRawMatrix: FloatArray? = latestRawAlignedMatrix) {
+        val currentMatrix = currentRawMatrix
         if (currentMatrix == null) {
             pendingInitialCalibration = true
             if (connected) statusText.text = "正在等待姿态归零"
@@ -324,7 +331,10 @@ class MainActivity : Activity(), SensorEventListener {
         }
         val grip = detectGripOrientation(currentMatrix)
         gripOrientation = grip.protocolValue
-        poseReferenceMatrix = currentMatrix.copyOf()
+        gripCoordinateCorrection180 = grip.coordinateCorrectionDegrees == 180
+        val canonicalMatrix = applyGripCorrection(currentMatrix, gripCoordinateCorrection180)
+        latestAlignedMatrix = canonicalMatrix.copyOf()
+        poseReferenceMatrix = canonicalMatrix.copyOf()
         calibrationFramesRemaining = 3
         motionPacketGate.reset()
         if (connected) {
@@ -364,7 +374,19 @@ class MainActivity : Activity(), SensorEventListener {
         val rollDegrees = Math.toDegrees(angles[2].toDouble())
         return resolveGripDisplayOrientation(rollDegrees)
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; calibrationFramesRemaining = 0; pendingInitialCalibration = false; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    private fun applyGripCorrection(matrix: FloatArray, correction180: Boolean): FloatArray {
+        if (!correction180) return matrix.copyOf()
+        val corrected = FloatArray(9)
+        // 绕显示坐标 Z 轴旋转 180°，将反向握持统一到按钮标准位置。
+        SensorManager.remapCoordinateSystem(
+            matrix,
+            SensorManager.AXIS_MINUS_X,
+            SensorManager.AXIS_MINUS_Y,
+            corrected,
+        )
+        return corrected
+    }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
