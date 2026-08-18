@@ -72,4 +72,21 @@ class GripDisplayOrientationTest {
         assertEquals(PoseAngles(-2.0, -3.0, 4.0), mapDeviceRotationForGrip("portrait", rotation))
         assertEquals(PoseAngles(3.0, -2.0, 4.0), mapDeviceRotationForGrip("landscape", rotation))
     }
+
+    @Test
+    fun `加速度与横竖握姿复用PRY坐标映射`() {
+        val acceleration = mapLinearAccelerationForGrip("portrait", 2.0, 3.0, 4.0)
+        assertEquals(AccelerationAxes(3.0, 2.0, 4.0), acceleration)
+
+        val landscape = mapLinearAccelerationForGrip("landscape", 2.0, 3.0, 4.0)
+        assertEquals(AccelerationAxes(-2.0, 3.0, 4.0), landscape)
+    }
+
+    @Test
+    fun `反向握持只翻转屏幕平面加速度`() {
+        assertEquals(
+            AccelerationAxes(2.0, -3.0, 4.0),
+            mapLinearAccelerationForGrip("landscape", 2.0, 3.0, 4.0, 180),
+        )
+    }
 }

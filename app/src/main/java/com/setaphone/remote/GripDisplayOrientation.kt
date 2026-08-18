@@ -16,6 +16,12 @@ data class DeviceRotationDegrees(
     val z: Double,
 )
 
+data class AccelerationAxes(
+    val x: Double,
+    val y: Double,
+    val z: Double,
+)
+
 fun resolveGripDisplayOrientation(
     verticalDeviceX: Double,
     verticalDeviceY: Double,
@@ -93,5 +99,26 @@ fun mapDeviceRotationForGrip(orientation: String, rotation: DeviceRotationDegree
         PoseAngles(rotation.y, -rotation.x, rotation.z)
     } else {
         PoseAngles(-rotation.x, -rotation.y, rotation.z)
+    }
+}
+
+fun mapLinearAccelerationForGrip(
+    orientation: String,
+    accelerationX: Double,
+    accelerationY: Double,
+    accelerationZ: Double,
+    coordinateCorrectionDegrees: Int = 0,
+): AccelerationAxes {
+    // 这里的 raw X/Y 是 Android 设备坐标，不是旋转向量的 PRY 分量。
+    // 按屏幕物理方向归一化后，协议 x=Height，y=PositionX，z=PositionY。
+    val mapped = if (orientation == "landscape") {
+        AccelerationAxes(-accelerationX, accelerationY, accelerationZ)
+    } else {
+        AccelerationAxes(accelerationY, accelerationX, accelerationZ)
+    }
+    return if (coordinateCorrectionDegrees == 180) {
+        AccelerationAxes(-mapped.x, -mapped.y, mapped.z)
+    } else {
+        mapped
     }
 }

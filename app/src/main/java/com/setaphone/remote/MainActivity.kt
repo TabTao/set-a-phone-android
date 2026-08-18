@@ -418,17 +418,21 @@ class MainActivity : Activity(), SensorEventListener {
         val now = System.nanoTime()
         if (now - lastAccelerationAtNanos < 16_000_000L) return
         lastAccelerationAtNanos = now
-        @Suppress("DEPRECATION")
-        val rotation = windowManager.defaultDisplay.rotation
-        val (screenX, screenY) = when (rotation) {
-            Surface.ROTATION_90 -> event.values[1] to -event.values[0]
-            Surface.ROTATION_270 -> -event.values[1] to event.values[0]
-            else -> event.values[0] to event.values[1]
-        }
-        val z = event.values[2]
-        if (maxOf(kotlin.math.abs(screenX), kotlin.math.abs(screenY), kotlin.math.abs(z)) < ACCELERATION_SEND_THRESHOLD) return
-        // 协议 X 固定表示手机抬举，Y 表示左右平移。
-        send(JSONObject().put("type", "acceleration").put("x", screenY).put("y", screenX).put("z", z))
+        val mapped = mapLinearAccelerationForGrip(
+            orientation = gripOrientation,
+            accelerationX = event.values[0].toDouble(),
+            accelerationY = event.values[1].toDouble(),
+            accelerationZ = event.values[2].toDouble(),
+            coordinateCorrectionDegrees = if (gripCoordinateCorrection180) 180 else 0,
+        )
+        if (maxOf(kotlin.math.abs(mapped.x), kotlin.math.abs(mapped.y), kotlin.math.abs(mapped.z)) < ACCELERATION_SEND_THRESHOLD) return
+        // 加速度与 P/R/Y 使用同一握持坐标：x=Height，y=PositionX，z=PositionY。
+        send(
+            JSONObject().put("type", "acceleration")
+                .put("x", mapped.x).put("y", mapped.y).put("z", mapped.z)
+                .put("orientation", gripOrientation)
+                .put("coordinateCorrection", if (gripCoordinateCorrection180) 180 else 0),
+        )
     }
 
     private fun calibratePose(currentRawMatrix: FloatArray? = latestRawAlignedMatrix) {
