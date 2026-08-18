@@ -17,6 +17,7 @@ import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.graphics.BitmapFactory
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -35,6 +36,8 @@ class MainActivity : Activity(), SensorEventListener {
     private val previewGeneration = AtomicLong(0)
     private val pendingPose = AtomicReference<ByteArray?>(null)
     private val poseSendScheduled = AtomicBoolean(false)
+    private val pendingSensorSample = AtomicReference<ByteArray?>(null)
+    private val sensorSampleSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
     private var linearAccelerationSensor: Sensor? = null
@@ -64,6 +67,10 @@ class MainActivity : Activity(), SensorEventListener {
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
     private var pendingInitialCalibration = false
+    private var diagnosticMode = false
+    private var sensorSampleSequence = 0L
+    private var previousDeviceEuler: FloatArray? = null
+    private var previousDisplayEuler: FloatArray? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,7 +104,19 @@ class MainActivity : Activity(), SensorEventListener {
             }
         }
         findViewById<Button>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
-        findViewById<Button>(R.id.placeholderButton).setOnClickListener { adjustmentPanel.visibility = View.GONE }
+        val diagnosticButton = findViewById<Button>(R.id.diagnosticButton)
+        diagnosticButton.setOnClickListener {
+            diagnosticMode = !diagnosticMode
+            diagnosticButton.isSelected = diagnosticMode
+            diagnosticButton.text = if (diagnosticMode) "诊断中" else "诊断"
+            statusText.text = if (diagnosticMode) "姿态原始数据诊断已开启" else "姿态诊断已关闭"
+            if (!diagnosticMode) {
+                pendingSensorSample.set(null)
+                previousDeviceEuler = null
+                previousDisplayEuler = null
+            }
+            send(JSONObject().put("type", "diagnostic_status").put("enabled", diagnosticMode))
+        }
         previewModeButton.setOnClickListener { togglePreviewSource() }
         findViewById<SeekBar>(R.id.pitchScale).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
@@ -127,6 +146,8 @@ class MainActivity : Activity(), SensorEventListener {
             gripCoordinateCorrection180 = false
             calibrationFramesRemaining = 0
             pendingInitialCalibration = false
+            previousDeviceEuler = null
+            previousDisplayEuler = null
             motionPacketGate.reset()
             stopPreview()
             connectButton.text = "连接"
@@ -174,6 +195,25 @@ class MainActivity : Activity(), SensorEventListener {
         poseSendScheduled.set(false)
         if (pendingPose.get() != null && poseSendScheduled.compareAndSet(false, true)) {
             sender.execute { drainPoses() }
+        }
+    }
+
+    // 诊断样本也只保留最新值，不能挤占正常姿态控制包。
+    private fun sendSensorSample(payload: JSONObject) {
+        if (!connected || !diagnosticMode || host.isBlank()) return
+        pendingSensorSample.set(payload.toString().toByteArray(Charsets.UTF_8))
+        if (!sensorSampleSendScheduled.compareAndSet(false, true)) return
+        sender.execute { drainSensorSamples() }
+    }
+
+    private fun drainSensorSamples() {
+        while (true) {
+            val bytes = pendingSensorSample.getAndSet(null) ?: break
+            runCatching { sendBytes(bytes) }
+        }
+        sensorSampleSendScheduled.set(false)
+        if (pendingSensorSample.get() != null && sensorSampleSendScheduled.compareAndSet(false, true)) {
+            sender.execute { drainSensorSamples() }
         }
     }
 
@@ -265,6 +305,34 @@ class MainActivity : Activity(), SensorEventListener {
             Surface.ROTATION_270 -> SensorManager.remapCoordinateSystem(matrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, aligned)
             else -> matrix.copyInto(aligned)
         }
+        if (connected && diagnosticMode) {
+            val rawOrientation = FloatArray(3)
+            val displayOrientation = FloatArray(3)
+            val quaternion = FloatArray(4)
+            SensorManager.getOrientation(matrix, rawOrientation)
+            SensorManager.getOrientation(aligned, displayOrientation)
+            SensorManager.getQuaternionFromVector(quaternion, event.values)
+            val deviceEulerDelta = eulerDelta(previousDeviceEuler, rawOrientation)
+            val displayEulerDelta = eulerDelta(previousDisplayEuler, displayOrientation)
+            previousDeviceEuler = rawOrientation.copyOf()
+            previousDisplayEuler = displayOrientation.copyOf()
+            @Suppress("DEPRECATION")
+            val displayRotation = windowManager.defaultDisplay.rotation
+            sendSensorSample(
+                JSONObject().put("type", "sensor_sample")
+                    .put("sequence", ++sensorSampleSequence)
+                    .put("sensorNanos", event.timestamp)
+                    .put("displayRotation", displayRotation)
+                    .put("rotationVector", JSONArray(event.values.map { it.toDouble() }))
+                    .put("quaternion", JSONArray(quaternion.map { it.toDouble() }))
+                    .put("deviceMatrix", JSONArray(matrix.map { it.toDouble() }))
+                    .put("displayMatrix", JSONArray(aligned.map { it.toDouble() }))
+                    .put("deviceEuler", JSONArray(rawOrientation.map { Math.toDegrees(it.toDouble()) }))
+                    .put("displayEuler", JSONArray(displayOrientation.map { Math.toDegrees(it.toDouble()) }))
+                    .put("deviceEulerDelta", JSONArray(deviceEulerDelta.map { Math.toDegrees(it.toDouble()) }))
+                    .put("displayEulerDelta", JSONArray(displayEulerDelta.map { Math.toDegrees(it.toDouble()) }))
+            )
+        }
         latestRawAlignedMatrix = aligned.copyOf()
         if (connected && pendingInitialCalibration) {
             pendingInitialCalibration = false
@@ -304,6 +372,16 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun roundPose(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
+
+    private fun eulerDelta(previous: FloatArray?, current: FloatArray): FloatArray {
+        if (previous == null) return floatArrayOf(0f, 0f, 0f)
+        return FloatArray(3) { index ->
+            var delta = current[index].toDouble() - previous[index].toDouble()
+            while (delta > Math.PI) delta -= Math.PI * 2.0
+            while (delta < -Math.PI) delta += Math.PI * 2.0
+            delta.toFloat()
+        }
+    }
 
     private fun sendVerticalAcceleration(event: SensorEvent) {
         val now = System.nanoTime()
@@ -386,7 +464,7 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
