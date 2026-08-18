@@ -284,10 +284,10 @@ class MainActivity : Activity(), SensorEventListener {
         // 重映射后：X 轴是俯仰，Y 轴是水平转动，Z 轴是相机画面旋转。
         val calibrating = calibrationFramesRemaining > 0
         if (calibrating) calibrationFramesRemaining--
-        val pitch = if (calibrating) 0.0 else Math.toDegrees(orientation[1].toDouble())
-        val yaw = if (calibrating) 0.0 else Math.toDegrees(orientation[2].toDouble())
-        val roll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
-        val pose = PoseAngles(pitch, yaw, roll)
+        val rawPitch = if (calibrating) 0.0 else Math.toDegrees(orientation[1].toDouble())
+        val rawYaw = if (calibrating) 0.0 else Math.toDegrees(orientation[2].toDouble())
+        val rawRoll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
+        val pose = mapRelativePoseForGrip(gripOrientation, rawPitch, rawYaw, rawRoll)
         when (motionPacketGate.next(pose, now, calibrating)) {
             MotionPacketKind.POSE -> {
                 val sentPose = PoseAngles(roundPose(pitch), roundPose(yaw), roundPose(roll))
@@ -371,7 +371,7 @@ class MainActivity : Activity(), SensorEventListener {
     private fun detectGripOrientation(matrix: FloatArray): GripDisplayOrientation {
         val angles = FloatArray(3)
         SensorManager.getOrientation(matrix, angles)
-        val rollDegrees = Math.toDegrees(angles[2].toDouble())
+        val rollDegrees = Math.toDegrees(angles[0].toDouble())
         return resolveGripDisplayOrientation(rollDegrees)
     }
     private fun applyGripCorrection(matrix: FloatArray, correction180: Boolean): FloatArray {
