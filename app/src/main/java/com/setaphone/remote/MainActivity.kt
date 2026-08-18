@@ -189,7 +189,11 @@ class MainActivity : Activity(), SensorEventListener {
         getPreferences(MODE_PRIVATE).edit().putString("host", host).apply()
         connected = true
         connectButton.text = "断开"
-        statusText.text = "已连接 $host:18888"
+        statusText.text = if (linearAccelerationSensor == null) {
+            "已连接 $host:18888（设备不支持线性加速度）"
+        } else {
+            "已连接 $host:18888"
+        }
         calibratePose()
         send(JSONObject().put("type", "slider").put("value", rotationScale))
     }
