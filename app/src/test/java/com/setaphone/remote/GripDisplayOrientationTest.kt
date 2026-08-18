@@ -2,47 +2,74 @@ package com.setaphone.remote
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlin.math.cos
+import kotlin.math.sin
 
 class GripDisplayOrientationTest {
     @Test
-    fun `竖持手机判定为竖屏且不旋转预览`() {
-        val orientation = resolveGripDisplayOrientation(0.0)
-
-        assertEquals(GripDisplayOrientation("portrait", 0), orientation)
+    fun `设备长轴竖直时判定标准竖屏`() {
+        assertEquals(GripDisplayOrientation("portrait", 0), resolveGripDisplayOrientation(0.0, 1.0))
     }
 
     @Test
-    fun `向右横持手机判定为横屏且不旋转预览`() {
-        val orientation = resolveGripDisplayOrientation(90.0)
-
-        assertEquals(GripDisplayOrientation("landscape", 0), orientation)
+    fun `设备横轴竖直时判定标准横屏`() {
+        assertEquals(GripDisplayOrientation("landscape", 0), resolveGripDisplayOrientation(1.0, 0.0))
     }
 
     @Test
-    fun `向左横持手机判定为横屏且不旋转预览`() {
-        val orientation = resolveGripDisplayOrientation(-90.0)
-
-        assertEquals(GripDisplayOrientation("landscape", 180), orientation)
+    fun `反向握持通过重力投影产生一百八十度修正`() {
+        assertEquals(GripDisplayOrientation("portrait", 180), resolveGripDisplayOrientation(0.0, -1.0))
+        assertEquals(GripDisplayOrientation("landscape", 180), resolveGripDisplayOrientation(-1.0, 0.0))
     }
 
     @Test
-    fun `归零边界接近竖直时判定为竖屏`() {
-        assertEquals("portrait", resolveGripDisplayOrientation(74.9).protocolValue)
-        assertEquals("landscape", resolveGripDisplayOrientation(75.1).protocolValue)
-        assertEquals("portrait", resolveGripDisplayOrientation(180.0).protocolValue)
-        assertEquals(180, resolveGripDisplayOrientation(180.0).coordinateCorrectionDegrees)
+    fun `长轴偏离竖直七十五度后判定横屏`() {
+        fun projection(angleDegrees: Double): Pair<Double, Double> {
+            val radians = Math.toRadians(angleDegrees)
+            return sin(radians) to cos(radians)
+        }
+
+        val portrait = projection(74.9)
+        val landscape = projection(75.1)
+        assertEquals("portrait", resolveGripDisplayOrientation(portrait.first, portrait.second).protocolValue)
+        assertEquals("landscape", resolveGripDisplayOrientation(landscape.first, landscape.second).protocolValue)
     }
 
     @Test
-    fun `角度归一化覆盖反向横竖握持`() {
-        assertEquals(GripDisplayOrientation("portrait", 180), resolveGripDisplayOrientation(-180.0))
-        assertEquals(GripDisplayOrientation("landscape", 0), resolveGripDisplayOrientation(450.0))
-        assertEquals(GripDisplayOrientation("landscape", 180), resolveGripDisplayOrientation(-450.0))
+    fun `实机采集的重力投影稳定区分横竖握姿`() {
+        assertEquals("portrait", resolveGripDisplayOrientation(-0.010, 0.998).protocolValue)
+        assertEquals("portrait", resolveGripDisplayOrientation(-0.009, 1.000).protocolValue)
+        assertEquals("landscape", resolveGripDisplayOrientation(1.000, 0.018).protocolValue)
+        assertEquals("landscape", resolveGripDisplayOrientation(0.998, 0.019).protocolValue)
     }
 
     @Test
-    fun `横竖握姿分别转换协议三轴并反向校正滚转`() {
-        assertEquals(PoseAngles(2.0, -3.0, -4.0), mapRelativePoseForGrip("portrait", 2.0, 3.0, 4.0))
-        assertEquals(PoseAngles(3.0, 2.0, -4.0), mapRelativePoseForGrip("landscape", 2.0, 3.0, 4.0))
+    fun `旋转矩阵转换为稳定的设备旋转向量`() {
+        fun axisMatrix(axis: String, degrees: Double): FloatArray {
+            val radians = Math.toRadians(degrees)
+            val cosine = cos(radians).toFloat()
+            val sine = sin(radians).toFloat()
+            return when (axis) {
+                "x" -> floatArrayOf(1f, 0f, 0f, 0f, cosine, -sine, 0f, sine, cosine)
+                "y" -> floatArrayOf(cosine, 0f, sine, 0f, 1f, 0f, -sine, 0f, cosine)
+                else -> floatArrayOf(cosine, -sine, 0f, sine, cosine, 0f, 0f, 0f, 1f)
+            }
+        }
+
+        val x = rotationVectorDegrees(axisMatrix("x", 30.0))
+        val y = rotationVectorDegrees(axisMatrix("y", -40.0))
+        val z = rotationVectorDegrees(axisMatrix("z", 50.0))
+        val halfTurn = rotationVectorDegrees(axisMatrix("x", 180.0))
+        assertEquals(30.0, x.x, 0.001)
+        assertEquals(-40.0, y.y, 0.001)
+        assertEquals(50.0, z.z, 0.001)
+        assertEquals(180.0, kotlin.math.abs(halfTurn.x), 0.001)
+    }
+
+    @Test
+    fun `实测横竖握姿映射到正确的PRY方向`() {
+        val rotation = DeviceRotationDegrees(2.0, 3.0, 4.0)
+        assertEquals(PoseAngles(-2.0, 3.0, -4.0), mapDeviceRotationForGrip("portrait", rotation))
+        assertEquals(PoseAngles(-3.0, 2.0, -4.0), mapDeviceRotationForGrip("landscape", rotation))
     }
 }

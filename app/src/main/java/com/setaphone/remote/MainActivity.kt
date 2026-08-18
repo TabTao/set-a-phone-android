@@ -296,7 +296,6 @@ class MainActivity : Activity(), SensorEventListener {
         lastPoseAtNanos = now
         val matrix = FloatArray(9)
         val aligned = FloatArray(9)
-        val orientation = FloatArray(3)
         SensorManager.getRotationMatrixFromVector(matrix, event.values)
         @Suppress("DEPRECATION")
         when (windowManager.defaultDisplay.rotation) {
@@ -348,14 +347,14 @@ class MainActivity : Activity(), SensorEventListener {
         } else {
             relativeRotation(reference, canonicalAligned)
         }
-        SensorManager.getOrientation(relative, orientation)
-        // 重映射后：X 轴是俯仰，Y 轴是水平转动，Z 轴是相机画面旋转。
         val calibrating = calibrationFramesRemaining > 0
         if (calibrating) calibrationFramesRemaining--
-        val rawPitch = if (calibrating) 0.0 else Math.toDegrees(orientation[1].toDouble())
-        val rawYaw = if (calibrating) 0.0 else Math.toDegrees(orientation[2].toDouble())
-        val rawRoll = if (calibrating) 0.0 else Math.toDegrees(orientation[0].toDouble())
-        val pose = mapRelativePoseForGrip(gripOrientation, rawPitch, rawYaw, rawRoll)
+        val deviceRotation = if (calibrating) {
+            DeviceRotationDegrees(0.0, 0.0, 0.0)
+        } else {
+            rotationVectorDegrees(relative)
+        }
+        val pose = mapDeviceRotationForGrip(gripOrientation, deviceRotation)
         when (motionPacketGate.next(pose, now, calibrating)) {
             MotionPacketKind.POSE -> {
                 val sentPose = PoseAngles(roundPose(pose.pitch), roundPose(pose.yaw), roundPose(pose.roll))
@@ -447,10 +446,8 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun detectGripOrientation(matrix: FloatArray): GripDisplayOrientation {
-        val angles = FloatArray(3)
-        SensorManager.getOrientation(matrix, angles)
-        val rollDegrees = Math.toDegrees(angles[0].toDouble())
-        return resolveGripDisplayOrientation(rollDegrees)
+        // matrix[6]/matrix[7] 是设备 X/Y 轴在世界竖直方向上的投影。
+        return resolveGripDisplayOrientation(matrix[6].toDouble(), matrix[7].toDouble())
     }
     private fun applyGripCorrection(matrix: FloatArray, correction180: Boolean): FloatArray {
         if (!correction180) return matrix.copyOf()
