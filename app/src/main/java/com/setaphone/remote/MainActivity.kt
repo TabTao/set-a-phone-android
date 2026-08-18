@@ -82,14 +82,14 @@ class MainActivity : Activity(), SensorEventListener {
         calibrateButton.setOnClickListener { calibratePose() }
         findViewById<View>(R.id.menuButton).setOnClickListener {
             if (menuOptions.visibility == View.VISIBLE) {
-                menuOptions.animate().translationX(slideDistance()).alpha(0f)
+                menuOptions.animate().translationXBy(slideDistance()).alphaBy(-1f)
                     .withEndAction { menuOptions.visibility = View.GONE }.start()
                 adjustmentPanel.visibility = View.GONE
             } else {
                 menuOptions.translationX(slideDistance())
                 menuOptions.alpha(0f)
                 menuOptions.visibility = View.VISIBLE
-                menuOptions.animate().translationX(0f).alpha(1f).setDuration(180).start()
+                menuOptions.animate().translationXBy(-slideDistance()).alphaBy(1f).setDuration(180).start()
             }
         }
         findViewById<Button>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
