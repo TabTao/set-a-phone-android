@@ -2,6 +2,7 @@ package com.setaphone.remote
 
 import android.app.Activity
 import android.content.Context
+import android.content.res.Configuration
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -58,6 +59,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
     private var calibrationFramesRemaining = 0
+    private var gripOrientation = "portrait"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,8 +81,16 @@ class MainActivity : Activity(), SensorEventListener {
         findViewById<Button>(R.id.shutterButton).setOnClickListener { sendButton("shutter", "tap") }
         calibrateButton.setOnClickListener { calibratePose() }
         findViewById<View>(R.id.menuButton).setOnClickListener {
-            menuOptions.visibility = if (menuOptions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            if (menuOptions.visibility != View.VISIBLE) adjustmentPanel.visibility = View.GONE
+            if (menuOptions.visibility == View.VISIBLE) {
+                menuOptions.animate().translationX(slideDistance()).alpha(0f)
+                    .withEndAction { menuOptions.visibility = View.GONE }.start()
+                adjustmentPanel.visibility = View.GONE
+            } else {
+                menuOptions.translationX(slideDistance())
+                menuOptions.alpha(0f)
+                menuOptions.visibility = View.VISIBLE
+                menuOptions.animate().translationX(0f).alpha(1f).setDuration(180).start()
+            }
         }
         findViewById<Button>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
         findViewById<Button>(R.id.placeholderButton).setOnClickListener { adjustmentPanel.visibility = View.GONE }
@@ -183,7 +193,7 @@ class MainActivity : Activity(), SensorEventListener {
                     connection.readTimeout = 1_800
                     connection.useCaches = false
                     connection.inputStream.use { stream ->
-                        val bitmap = BitmapFactory.decodeStream(stream)
+                        val bitmap = scalePreview(BitmapFactory.decodeStream(stream), shortSide)
                         if (bitmap != null && previewRunning.get() && previewGeneration.get() == generation) {
                             runOnUiThread {
                                 if (previewRunning.get() && previewGeneration.get() == generation) {
@@ -212,10 +222,21 @@ class MainActivity : Activity(), SensorEventListener {
         previewGeneration.incrementAndGet()
     }
 
+    private fun scalePreview(bitmap: android.graphics.Bitmap?, requestedShortSide: Int): android.graphics.Bitmap? {
+        if (bitmap == null || requestedShortSide <= 0) return bitmap
+        val sourceShortSide = minOf(bitmap.width, bitmap.height)
+        if (sourceShortSide <= requestedShortSide) return bitmap
+        val scale = requestedShortSide.toFloat() / sourceShortSide.toFloat()
+        val width = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val height = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        return android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
+    }
+
+    private fun slideDistance(): Float = 220f * resources.displayMetrics.density
+
     override fun onSensorChanged(event: SensorEvent) {
-        if (!connected) return
         if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
-            sendVerticalAcceleration(event)
+            if (connected) sendVerticalAcceleration(event)
             return
         }
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
@@ -233,6 +254,7 @@ class MainActivity : Activity(), SensorEventListener {
             else -> matrix.copyInto(aligned)
         }
         latestAlignedMatrix = aligned.copyOf()
+        if (!connected) return
         val reference = poseReferenceMatrix
         val relative = if (reference == null) {
             poseReferenceMatrix = aligned.copyOf()
@@ -253,7 +275,7 @@ class MainActivity : Activity(), SensorEventListener {
                 val sentPose = PoseAngles(roundPose(pitch), roundPose(yaw), roundPose(roll))
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
-                        .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", "portrait")
+                        .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", gripOrientation)
                         .put("sequence", ++poseSequence).put("sensorNanos", now)
                         .put("calibrate", calibrating)
                 )
@@ -283,11 +305,12 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun calibratePose() {
+        gripOrientation = detectGripOrientation()
         poseReferenceMatrix = latestAlignedMatrix?.copyOf()
         calibrationFramesRemaining = 3
         motionPacketGate.reset()
         if (connected) {
-            send(JSONObject().put("type", "calibrate"))
+            send(JSONObject().put("type", "calibrate").put("orientation", gripOrientation))
             statusText.text = "已请求配对归零"
         }
     }
@@ -312,6 +335,21 @@ class MainActivity : Activity(), SensorEventListener {
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         linearAccelerationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
         if (connected) cameraPreview.post { startPreview() }
+    }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (connected) cameraPreview.post { startPreview() }
+    }
+
+    private fun detectGripOrientation(): String {
+        if (cameraPreview.width > 0 && cameraPreview.height > 0) {
+            return if (cameraPreview.width > cameraPreview.height) "landscape" else "portrait"
+        }
+        val matrix = latestAlignedMatrix ?: return gripOrientation
+        val angles = FloatArray(3)
+        SensorManager.getOrientation(matrix, angles)
+        val rollDegrees = Math.toDegrees(angles[0].toDouble()).let { kotlin.math.abs(it) }
+        return if (rollDegrees in 45.0..135.0) "landscape" else "portrait"
     }
     override fun onPause() { stopPreview(); poseReferenceMatrix = null; calibrationFramesRemaining = 0; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }

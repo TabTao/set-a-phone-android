@@ -2,6 +2,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/preview"
+    android:fitsSystemWindows="true"
     android:keepScreenOn="true">
     <ImageView
         android:id="@+id/cameraPreview"
@@ -9,7 +10,7 @@
         android:layout_height="match_parent"
         android:background="@drawable/preview_surface"
         android:contentDescription="远程预览"
-        android:scaleType="centerCrop" />
+        android:scaleType="fitCenter" />
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -64,7 +65,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_marginBottom="142dp"
+        android:layout_marginBottom="238dp"
         android:layout_marginEnd="12dp"
         android:background="@drawable/camera_panel"
         android:gravity="center_vertical"
@@ -97,7 +98,7 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="18dp"
         android:layout_marginEnd="18dp"
-        android:layout_marginBottom="142dp"
+        android:layout_marginBottom="150dp"
         android:background="@drawable/camera_panel"
         android:gravity="center_vertical"
         android:orientation="vertical"
@@ -123,43 +124,35 @@
     </LinearLayout>
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="142dp"
+        android:layout_height="126dp"
         android:layout_gravity="bottom"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="18dp"
         android:paddingEnd="18dp">
         <Button
-            android:id="@+id/shutterButton"
+            android:id="@+id/previewModeButton"
+            style="@style/CameraIconButton"
             android:layout_width="88dp"
-            android:layout_height="88dp"
-            android:layout_gravity="center"
-            android:layout_weight="1"
+            android:layout_height="48dp"
+            android:layout_marginEnd="18dp"
+            android:contentDescription="切换相机或场景"
+            android:text="场景" />
+        <Button
+            android:id="@+id/shutterButton"
+            android:layout_width="104dp"
+            android:layout_height="104dp"
             android:background="@drawable/shutter_button"
             android:contentDescription="拍照"
             android:text=""
             android:textColor="@android:color/transparent" />
-        <LinearLayout
-            android:layout_width="76dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:gravity="center"
-            android:orientation="vertical">
-            <ImageButton
-                android:id="@+id/menuButton"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:background="@drawable/camera_circle_button"
-                android:contentDescription="打开菜单"
-                android:src="@drawable/ic_menu_placeholder" />
-            <Button
-                android:id="@+id/previewModeButton"
-                style="@style/CameraIconButton"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="6dp"
-                android:contentDescription="切换相机或场景"
-                android:text="场景" />
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/menuButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="18dp"
+            android:background="@drawable/camera_circle_button"
+            android:contentDescription="打开菜单"
+            android:src="@drawable/ic_menu_placeholder" />
     </LinearLayout>
 </FrameLayout>
