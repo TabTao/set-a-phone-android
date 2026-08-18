@@ -61,7 +61,6 @@ class MainActivity : Activity(), SensorEventListener {
     private var latestAlignedMatrix: FloatArray? = null
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
-    @Volatile private var previewRotationDegrees = 0f
     private var pendingInitialCalibration = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -233,11 +232,9 @@ class MainActivity : Activity(), SensorEventListener {
         } else {
             1f
         }
-        val rotation = previewRotationDegrees
-        if (scale == 1f && rotation == 0f) return bitmap
+        if (scale == 1f) return bitmap
         val matrix = Matrix().apply {
             postScale(scale, scale)
-            if (rotation != 0f) postRotate(rotation)
         }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
@@ -327,7 +324,6 @@ class MainActivity : Activity(), SensorEventListener {
         }
         val grip = detectGripOrientation(currentMatrix)
         gripOrientation = grip.protocolValue
-        previewRotationDegrees = grip.previewRotationDegrees
         poseReferenceMatrix = currentMatrix.copyOf()
         calibrationFramesRemaining = 3
         motionPacketGate.reset()
