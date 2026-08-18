@@ -90,8 +90,8 @@ fun rotationVectorDegrees(matrix: FloatArray): DeviceRotationDegrees {
 
 fun mapDeviceRotationForGrip(orientation: String, rotation: DeviceRotationDegrees): PoseAngles {
     return if (orientation == "landscape") {
-        PoseAngles(-rotation.y, rotation.x, -rotation.z)
+        PoseAngles(rotation.y, -rotation.x, rotation.z)
     } else {
-        PoseAngles(-rotation.x, rotation.y, -rotation.z)
+        PoseAngles(-rotation.x, -rotation.y, rotation.z)
     }
 }

@@ -67,9 +67,9 @@ class GripDisplayOrientationTest {
     }
 
     @Test
-    fun `实测横竖握姿映射到正确的PRY方向`() {
+    fun `按实机二次反馈修正横竖握姿的PRY方向`() {
         val rotation = DeviceRotationDegrees(2.0, 3.0, 4.0)
-        assertEquals(PoseAngles(-2.0, 3.0, -4.0), mapDeviceRotationForGrip("portrait", rotation))
-        assertEquals(PoseAngles(-3.0, 2.0, -4.0), mapDeviceRotationForGrip("landscape", rotation))
+        assertEquals(PoseAngles(-2.0, -3.0, 4.0), mapDeviceRotationForGrip("portrait", rotation))
+        assertEquals(PoseAngles(3.0, -2.0, 4.0), mapDeviceRotationForGrip("landscape", rotation))
     }
 }
