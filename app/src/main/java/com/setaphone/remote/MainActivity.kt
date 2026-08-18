@@ -10,9 +10,11 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.view.Surface
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -48,7 +50,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var cameraPreview: ImageView
     private lateinit var menuOptions: View
     private lateinit var adjustmentPanel: View
-    private lateinit var previewModeButton: Button
+    private lateinit var previewModeButton: ImageButton
     private var previewPath = "camera.jpg"
     private var showingScene = false
     private var connected = false
@@ -91,24 +93,31 @@ class MainActivity : Activity(), SensorEventListener {
         connectButton.setOnClickListener { toggleConnection() }
         findViewById<Button>(R.id.shutterButton).setOnClickListener { sendButton("shutter", "tap") }
         calibrateButton.setOnClickListener { calibratePose() }
-        findViewById<View>(R.id.menuButton).setOnClickListener {
-            if (menuOptions.visibility == View.VISIBLE) {
-                menuOptions.animate().translationXBy(slideDistance()).alphaBy(-1f)
-                    .withEndAction { menuOptions.visibility = View.GONE }.start()
-                adjustmentPanel.visibility = View.GONE
-            } else {
-                menuOptions.translationX = slideDistance()
-                menuOptions.alpha = 0f
-                menuOptions.visibility = View.VISIBLE
-                menuOptions.animate().translationXBy(-slideDistance()).alphaBy(1f).setDuration(180).start()
+        findViewById<View>(R.id.menuButton).setOnClickListener { toggleMenuOptions() }
+        findViewById<ImageButton>(R.id.closeMenuButton).setOnClickListener { hideMenuOptions() }
+        findViewById<ImageButton>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
+        findViewById<Button>(R.id.motionHoldButton).setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    view.isSelected = true
+                    sendButton("fn3", "down")
+                    statusText.text = "已按住移动"
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.isSelected = false
+                    sendButton("fn3", "up")
+                    if (connected) statusText.text = "已连接 $host:18888"
+                    true
+                }
+                else -> true
             }
         }
-        findViewById<Button>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
-        val diagnosticButton = findViewById<Button>(R.id.diagnosticButton)
+        val diagnosticButton = findViewById<ImageButton>(R.id.diagnosticButton)
         diagnosticButton.setOnClickListener {
             diagnosticMode = !diagnosticMode
             diagnosticButton.isSelected = diagnosticMode
-            diagnosticButton.text = if (diagnosticMode) "诊断中" else "诊断"
+            diagnosticButton.contentDescription = if (diagnosticMode) "关闭诊断" else "诊断"
             statusText.text = if (diagnosticMode) "姿态原始数据诊断已开启" else "姿态诊断已关闭"
             if (!diagnosticMode) {
                 pendingSensorSample.set(null)
@@ -132,8 +141,27 @@ class MainActivity : Activity(), SensorEventListener {
     private fun togglePreviewSource() {
         showingScene = !showingScene
         previewPath = if (showingScene) "scene.jpg" else "camera.jpg"
-        previewModeButton.text = if (showingScene) "相机" else "场景"
+        previewModeButton.setImageResource(if (showingScene) R.drawable.ic_camera else R.drawable.ic_scene)
+        previewModeButton.contentDescription = if (showingScene) "切换到相机" else "切换到场景"
         if (connected) cameraPreview.post { startPreview() }
+    }
+
+    private fun toggleMenuOptions() {
+        if (menuOptions.visibility == View.VISIBLE) hideMenuOptions() else showMenuOptions()
+    }
+
+    private fun showMenuOptions() {
+        menuOptions.translationX = slideDistance()
+        menuOptions.alpha = 0f
+        menuOptions.visibility = View.VISIBLE
+        menuOptions.animate().translationXBy(-slideDistance()).alphaBy(1f).setDuration(180).start()
+    }
+
+    private fun hideMenuOptions() {
+        if (menuOptions.visibility != View.VISIBLE) return
+        menuOptions.animate().translationXBy(slideDistance()).alphaBy(-1f)
+            .withEndAction { menuOptions.visibility = View.GONE }.start()
+        adjustmentPanel.visibility = View.GONE
     }
 
     private fun toggleConnection() {

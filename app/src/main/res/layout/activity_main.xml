@@ -62,34 +62,57 @@
     </LinearLayout>
     <LinearLayout
         android:id="@+id/menuOptions"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
         android:layout_gravity="bottom|end"
-        android:layout_marginBottom="238dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginStart="18dp"
+        android:layout_marginEnd="18dp"
+        android:layout_marginBottom="116dp"
         android:background="@drawable/camera_panel"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:padding="6dp"
         android:visibility="gone">
-        <Button
+        <ImageButton
             android:id="@+id/multiplierButton"
-            style="@style/CameraIconButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="倍率" />
-        <Button
-            android:id="@+id/calibrateButton"
-            style="@style/CameraIconButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="归零" />
-        <Button
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@drawable/toolbar_button"
+            android:contentDescription="调节倍率"
+            android:padding="12dp"
+            android:src="@drawable/ic_tune"
+            android:tint="@color/text" />
+        <ImageButton
             android:id="@+id/diagnosticButton"
-            style="@style/CameraIconButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:text="诊断" />
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@drawable/toolbar_button"
+            android:contentDescription="诊断"
+            android:padding="12dp"
+            android:src="@drawable/ic_diagnostic"
+            android:tint="@color/text" />
+        <ImageButton
+            android:id="@+id/previewModeButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@drawable/toolbar_button"
+            android:contentDescription="切换到场景"
+            android:padding="12dp"
+            android:src="@drawable/ic_scene"
+            android:tint="@color/text" />
+        <ImageButton
+            android:id="@+id/closeMenuButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@drawable/camera_circle_button"
+            android:contentDescription="关闭菜单"
+            android:padding="13dp"
+            android:src="@drawable/ic_close"
+            android:tint="@color/text" />
     </LinearLayout>
     <LinearLayout
         android:id="@+id/adjustmentPanel"
@@ -98,7 +121,7 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="18dp"
         android:layout_marginEnd="18dp"
-        android:layout_marginBottom="150dp"
+        android:layout_marginBottom="28dp"
         android:background="@drawable/camera_panel"
         android:gravity="center_vertical"
         android:orientation="vertical"
@@ -124,20 +147,20 @@
     </LinearLayout>
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="126dp"
+        android:layout_height="180dp"
         android:layout_gravity="bottom"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="18dp"
         android:paddingEnd="18dp">
         <Button
-            android:id="@+id/previewModeButton"
+            android:id="@+id/motionHoldButton"
             style="@style/CameraIconButton"
             android:layout_width="88dp"
             android:layout_height="48dp"
             android:layout_marginEnd="18dp"
-            android:contentDescription="切换相机或场景"
-            android:text="场景" />
+            android:contentDescription="按住启用加速度移动"
+            android:text="按住移动" />
         <Button
             android:id="@+id/shutterButton"
             android:layout_width="104dp"
@@ -146,13 +169,29 @@
             android:contentDescription="拍照"
             android:text=""
             android:textColor="@android:color/transparent" />
-        <ImageButton
-            android:id="@+id/menuButton"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+        <FrameLayout
+            android:layout_width="88dp"
+            android:layout_height="180dp"
             android:layout_marginStart="18dp"
-            android:background="@drawable/camera_circle_button"
-            android:contentDescription="打开菜单"
-            android:src="@drawable/ic_menu_placeholder" />
+            android:clipChildren="false">
+            <ImageButton
+                android:id="@+id/menuButton"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="4dp"
+                android:background="@drawable/camera_circle_button"
+                android:contentDescription="打开菜单"
+                android:src="@drawable/ic_menu_placeholder" />
+            <Button
+                android:id="@+id/calibrateButton"
+                style="@style/CameraIconButton"
+                android:layout_width="88dp"
+                android:layout_height="48dp"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="66dp"
+                android:contentDescription="归零"
+                android:text="归零" />
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>
