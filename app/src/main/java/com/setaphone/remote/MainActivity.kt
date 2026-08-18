@@ -290,7 +290,7 @@ class MainActivity : Activity(), SensorEventListener {
         val pose = mapRelativePoseForGrip(gripOrientation, rawPitch, rawYaw, rawRoll)
         when (motionPacketGate.next(pose, now, calibrating)) {
             MotionPacketKind.POSE -> {
-                val sentPose = PoseAngles(roundPose(pitch), roundPose(yaw), roundPose(roll))
+                val sentPose = PoseAngles(roundPose(pose.pitch), roundPose(pose.yaw), roundPose(pose.roll))
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
                         .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", gripOrientation)
