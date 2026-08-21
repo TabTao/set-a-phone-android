@@ -450,7 +450,9 @@ class MainActivity : Activity(), SensorEventListener {
             JSONObject().put("type", "acceleration")
                 .put("x", mapped.x).put("y", mapped.y).put("z", mapped.z)
                 .put("orientation", gripOrientation)
-                .put("coordinateCorrection", if (gripCoordinateCorrection180) 180 else 0),
+                .put("coordinateCorrection", if (gripCoordinateCorrection180) 180 else 0)
+                .put("sequence", linearAccelerationSequence)
+                .put("sensorNanos", event.timestamp),
         )
     }
 
