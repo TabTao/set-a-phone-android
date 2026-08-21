@@ -61,6 +61,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var lastPoseAtNanos = 0L
     private var poseSequence = 0L
     private var lastAccelerationAtNanos = 0L
+    private var linearAccelerationSequence = 0L
     private val motionPacketGate = MotionPacketGate()
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
@@ -418,14 +419,32 @@ class MainActivity : Activity(), SensorEventListener {
         val now = System.nanoTime()
         if (now - lastAccelerationAtNanos < 16_000_000L) return
         lastAccelerationAtNanos = now
+        val rawX = event.values[0].toDouble()
+        val rawY = event.values[1].toDouble()
+        val rawZ = event.values[2].toDouble()
         val mapped = mapLinearAccelerationForGrip(
             orientation = gripOrientation,
-            accelerationX = event.values[0].toDouble(),
-            accelerationY = event.values[1].toDouble(),
-            accelerationZ = event.values[2].toDouble(),
+            accelerationX = rawX,
+            accelerationY = rawY,
+            accelerationZ = rawZ,
             coordinateCorrectionDegrees = if (gripCoordinateCorrection180) 180 else 0,
         )
-        if (maxOf(kotlin.math.abs(mapped.x), kotlin.math.abs(mapped.y), kotlin.math.abs(mapped.z)) < ACCELERATION_SEND_THRESHOLD) return
+        val sent = maxOf(kotlin.math.abs(mapped.x), kotlin.math.abs(mapped.y), kotlin.math.abs(mapped.z)) >= ACCELERATION_SEND_THRESHOLD
+        if (diagnosticMode) {
+            sendSensorSample(
+                JSONObject().put("type", "sensor_sample")
+                    .put("sensor", "linear_acceleration")
+                    .put("sequence", ++linearAccelerationSequence)
+                    .put("sensorNanos", event.timestamp)
+                    .put("orientation", gripOrientation)
+                    .put("coordinateCorrection", if (gripCoordinateCorrection180) 180 else 0)
+                    .put("rawX", rawX).put("rawY", rawY).put("rawZ", rawZ)
+                    .put("mappedX", mapped.x).put("mappedY", mapped.y).put("mappedZ", mapped.z)
+                    .put("threshold", ACCELERATION_SEND_THRESHOLD)
+                    .put("sent", sent),
+            )
+        }
+        if (!sent) return
         // 加速度与 P/R/Y 使用同一握持坐标：x=Height，y=PositionX，z=PositionY。
         send(
             JSONObject().put("type", "acceleration")
