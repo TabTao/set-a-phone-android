@@ -38,6 +38,8 @@ class MainActivity : Activity(), SensorEventListener {
     private val previewGeneration = AtomicLong(0)
     private val pendingPose = AtomicReference<ByteArray?>(null)
     private val poseSendScheduled = AtomicBoolean(false)
+    private val pendingAcceleration = AtomicReference<ByteArray?>(null)
+    private val accelerationSendScheduled = AtomicBoolean(false)
     private val pendingSensorSample = AtomicReference<ByteArray?>(null)
     private val sensorSampleSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
@@ -228,6 +230,26 @@ class MainActivity : Activity(), SensorEventListener {
         poseSendScheduled.set(false)
         if (pendingPose.get() != null && poseSendScheduled.compareAndSet(false, true)) {
             sender.execute { drainPoses() }
+        }
+    }
+
+    // 按住移动时只保留最新加速度包；连续零值用来让 PC 可靠识别已经静止。
+    private fun sendAcceleration(payload: JSONObject) {
+        if (!connected || !motionHoldActive || host.isBlank()) return
+        pendingAcceleration.set(payload.toString().toByteArray(Charsets.UTF_8))
+        if (!accelerationSendScheduled.compareAndSet(false, true)) return
+        sender.execute { drainAccelerations() }
+    }
+
+    private fun drainAccelerations() {
+        while (motionHoldActive) {
+            val bytes = pendingAcceleration.getAndSet(null) ?: break
+            runCatching { sendBytes(bytes) }
+        }
+        pendingAcceleration.set(null)
+        accelerationSendScheduled.set(false)
+        if (motionHoldActive && pendingAcceleration.get() != null && accelerationSendScheduled.compareAndSet(false, true)) {
+            sender.execute { drainAccelerations() }
         }
     }
 
