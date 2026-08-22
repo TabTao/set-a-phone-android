@@ -69,6 +69,7 @@ class MainActivity : Activity(), SensorEventListener {
     private var gripCoordinateCorrection180 = false
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
+    @Volatile private var gripOrientationLocked = false
     private var pendingInitialCalibration = false
     private var diagnosticMode = false
     private var sensorSampleSequence = 0L
@@ -101,13 +102,16 @@ class MainActivity : Activity(), SensorEventListener {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     view.isSelected = true
+                    gripOrientationLocked = true
                     sendButton("fn3", "down")
                     statusText.text = "已按住移动"
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.isSelected = false
+                    gripOrientationLocked = false
                     sendButton("fn3", "up")
+                    latestRawAlignedMatrix?.let { updateGripOrientationIfNeeded(it) }
                     if (connected) statusText.text = "已连接 $host:18888"
                     true
                 }
@@ -175,6 +179,7 @@ class MainActivity : Activity(), SensorEventListener {
             gripCoordinateCorrection180 = false
             calibrationFramesRemaining = 0
             pendingInitialCalibration = false
+            gripOrientationLocked = false
             previousDeviceEuler = null
             previousDisplayEuler = null
             motionPacketGate.reset()
@@ -197,6 +202,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun sendButton(button: String, action: String) = send(
         JSONObject().put("type", "button").put("button", button).put("action", action)
+            .put("orientation", gripOrientation)
     )
 
     private fun send(payload: JSONObject) {
@@ -362,6 +368,7 @@ class MainActivity : Activity(), SensorEventListener {
             )
         }
         latestRawAlignedMatrix = aligned.copyOf()
+        updateGripOrientationIfNeeded(aligned)
         if (connected && pendingInitialCalibration) {
             pendingInitialCalibration = false
             calibratePose(aligned)
@@ -464,6 +471,19 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
+    private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray) {
+        if (gripOrientationLocked) return
+        val grip = detectGripOrientation(rawAlignedMatrix)
+        val correction180 = grip.coordinateCorrectionDegrees == 180
+        if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return
+        gripOrientation = grip.protocolValue
+        gripCoordinateCorrection180 = correction180
+        val canonicalMatrix = applyGripCorrection(rawAlignedMatrix, correction180)
+        latestAlignedMatrix = canonicalMatrix.copyOf()
+        poseReferenceMatrix = canonicalMatrix.copyOf()
+        motionPacketGate.reset()
+    }
+
     private fun relativeRotation(reference: FloatArray, current: FloatArray): FloatArray {
         val result = FloatArray(9)
         for (row in 0..2) {
@@ -504,7 +524,7 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
