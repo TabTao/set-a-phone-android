@@ -38,8 +38,6 @@ class MainActivity : Activity(), SensorEventListener {
     private val previewGeneration = AtomicLong(0)
     private val pendingPose = AtomicReference<ByteArray?>(null)
     private val poseSendScheduled = AtomicBoolean(false)
-    private val pendingAcceleration = AtomicReference<ByteArray?>(null)
-    private val accelerationSendScheduled = AtomicBoolean(false)
     private val pendingSensorSample = AtomicReference<ByteArray?>(null)
     private val sensorSampleSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
@@ -64,7 +62,6 @@ class MainActivity : Activity(), SensorEventListener {
     private var poseSequence = 0L
     private var lastAccelerationAtNanos = 0L
     private var linearAccelerationSequence = 0L
-    @Volatile private var motionHoldActive = false
     private val motionPacketGate = MotionPacketGate()
     private var poseReferenceMatrix: FloatArray? = null
     private var latestAlignedMatrix: FloatArray? = null
@@ -104,15 +101,12 @@ class MainActivity : Activity(), SensorEventListener {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     view.isSelected = true
-                    motionHoldActive = true
-                    lastAccelerationAtNanos = 0L
                     sendButton("fn3", "down")
                     statusText.text = "已按住移动"
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.isSelected = false
-                    motionHoldActive = false
                     sendButton("fn3", "up")
                     if (connected) statusText.text = "已连接 $host:18888"
                     true
@@ -230,26 +224,6 @@ class MainActivity : Activity(), SensorEventListener {
         poseSendScheduled.set(false)
         if (pendingPose.get() != null && poseSendScheduled.compareAndSet(false, true)) {
             sender.execute { drainPoses() }
-        }
-    }
-
-    // 按住移动时只保留最新加速度包；连续零值用来让 PC 可靠识别已经静止。
-    private fun sendAcceleration(payload: JSONObject) {
-        if (!connected || !motionHoldActive || host.isBlank()) return
-        pendingAcceleration.set(payload.toString().toByteArray(Charsets.UTF_8))
-        if (!accelerationSendScheduled.compareAndSet(false, true)) return
-        sender.execute { drainAccelerations() }
-    }
-
-    private fun drainAccelerations() {
-        while (motionHoldActive) {
-            val bytes = pendingAcceleration.getAndSet(null) ?: break
-            runCatching { sendBytes(bytes) }
-        }
-        pendingAcceleration.set(null)
-        accelerationSendScheduled.set(false)
-        if (motionHoldActive && pendingAcceleration.get() != null && accelerationSendScheduled.compareAndSet(false, true)) {
-            sender.execute { drainAccelerations() }
         }
     }
 
@@ -438,7 +412,6 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun recordLinearAccelerationDiagnostic(event: SensorEvent) {
-        if (!motionHoldActive) return
         val now = System.nanoTime()
         if (now - lastAccelerationAtNanos < 16_000_000L) return
         lastAccelerationAtNanos = now
@@ -531,7 +504,7 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { motionHoldActive = false; stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
