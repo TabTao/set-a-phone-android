@@ -38,8 +38,6 @@ class MainActivity : Activity(), SensorEventListener {
     private val previewGeneration = AtomicLong(0)
     private val pendingPose = AtomicReference<ByteArray?>(null)
     private val poseSendScheduled = AtomicBoolean(false)
-    private val pendingAcceleration = AtomicReference<ByteArray?>(null)
-    private val accelerationSendScheduled = AtomicBoolean(false)
     private val pendingSensorSample = AtomicReference<ByteArray?>(null)
     private val sensorSampleSendScheduled = AtomicBoolean(false)
     private lateinit var sensorManager: SensorManager
@@ -113,7 +111,6 @@ class MainActivity : Activity(), SensorEventListener {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.isSelected = false
                     motionHoldActive = false
-                    pendingAcceleration.set(null)
                     sendButton("fn3", "up")
                     if (connected) statusText.text = "已连接 $host:18888"
                     true
@@ -197,11 +194,7 @@ class MainActivity : Activity(), SensorEventListener {
         getPreferences(MODE_PRIVATE).edit().putString("host", host).apply()
         connected = true
         connectButton.text = "断开"
-        statusText.text = if (linearAccelerationSensor == null) {
-            "已连接 $host:18888（设备不支持线性加速度）"
-        } else {
-            "已连接 $host:18888"
-        }
+        statusText.text = "已连接 $host:18888"
         calibratePose()
         send(JSONObject().put("type", "slider").put("value", rotationScale))
     }
@@ -235,26 +228,6 @@ class MainActivity : Activity(), SensorEventListener {
         poseSendScheduled.set(false)
         if (pendingPose.get() != null && poseSendScheduled.compareAndSet(false, true)) {
             sender.execute { drainPoses() }
-        }
-    }
-
-    // 按住移动时只保留最新加速度包；连续零值用来让 PC 可靠识别已经静止。
-    private fun sendAcceleration(payload: JSONObject) {
-        if (!connected || !motionHoldActive || host.isBlank()) return
-        pendingAcceleration.set(payload.toString().toByteArray(Charsets.UTF_8))
-        if (!accelerationSendScheduled.compareAndSet(false, true)) return
-        sender.execute { drainAccelerations() }
-    }
-
-    private fun drainAccelerations() {
-        while (motionHoldActive) {
-            val bytes = pendingAcceleration.getAndSet(null) ?: break
-            runCatching { sendBytes(bytes) }
-        }
-        pendingAcceleration.set(null)
-        accelerationSendScheduled.set(false)
-        if (motionHoldActive && pendingAcceleration.get() != null && accelerationSendScheduled.compareAndSet(false, true)) {
-            sender.execute { drainAccelerations() }
         }
     }
 
@@ -347,7 +320,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
-            if (connected) sendVerticalAcceleration(event)
+            if (connected) recordLinearAccelerationDiagnostic(event)
             return
         }
         if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
@@ -442,7 +415,7 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
-    private fun sendVerticalAcceleration(event: SensorEvent) {
+    private fun recordLinearAccelerationDiagnostic(event: SensorEvent) {
         if (!motionHoldActive) return
         val now = System.nanoTime()
         if (now - lastAccelerationAtNanos < 16_000_000L) return
@@ -471,16 +444,7 @@ class MainActivity : Activity(), SensorEventListener {
                     .put("sent", true),
             )
         }
-        // 加速度与 P/R/Y 使用同一握持坐标：x=Height，y=PositionX，z=PositionY。
-        // 按住期间即使三轴为零也要发送，PC 以此确认静止后才允许反向移动。
-        sendAcceleration(
-            JSONObject().put("type", "acceleration")
-                .put("x", mapped.x).put("y", mapped.y).put("z", mapped.z)
-                .put("orientation", gripOrientation)
-                .put("coordinateCorrection", if (gripCoordinateCorrection180) 180 else 0)
-                .put("sequence", sequence)
-                .put("sensorNanos", event.timestamp),
-        )
+        // 加速度只用于诊断；PC 控制器不会再用它修改 X/Y/H。
     }
 
     private fun calibratePose(currentRawMatrix: FloatArray? = latestRawAlignedMatrix) {
@@ -545,7 +509,7 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { motionHoldActive = false; pendingAcceleration.set(null); stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { motionHoldActive = false; stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
