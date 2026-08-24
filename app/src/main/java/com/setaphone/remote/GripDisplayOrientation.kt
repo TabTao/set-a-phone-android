@@ -29,7 +29,7 @@ fun resolveGripDisplayOrientation(
     val longAxisFromVerticalDegrees = Math.toDegrees(
         acos(abs(verticalDeviceY).coerceIn(0.0, 1.0)),
     )
-    return if (longAxisFromVerticalDegrees < 75.0) {
+    return if (longAxisFromVerticalDegrees < 60.0) {
         GripDisplayOrientation("portrait", if (verticalDeviceY >= 0.0) 0 else 180)
     } else {
         GripDisplayOrientation("landscape", if (verticalDeviceX >= 0.0) 0 else 180)

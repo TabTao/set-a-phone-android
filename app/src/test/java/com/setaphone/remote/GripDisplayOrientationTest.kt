@@ -23,14 +23,14 @@ class GripDisplayOrientationTest {
     }
 
     @Test
-    fun `长轴偏离竖直七十五度后判定横屏`() {
+    fun `长轴偏离竖直六十度后判定横屏`() {
         fun projection(angleDegrees: Double): Pair<Double, Double> {
             val radians = Math.toRadians(angleDegrees)
             return sin(radians) to cos(radians)
         }
 
-        val portrait = projection(74.9)
-        val landscape = projection(75.1)
+        val portrait = projection(59.9)
+        val landscape = projection(60.1)
         assertEquals("portrait", resolveGripDisplayOrientation(portrait.first, portrait.second).protocolValue)
         assertEquals("landscape", resolveGripDisplayOrientation(landscape.first, landscape.second).protocolValue)
     }

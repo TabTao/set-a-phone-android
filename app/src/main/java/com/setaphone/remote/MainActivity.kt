@@ -69,12 +69,14 @@ class MainActivity : Activity(), SensorEventListener {
     private var gripCoordinateCorrection180 = false
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
+    @Volatile private var motionHoldActive = false
     @Volatile private var gripOrientationLocked = false
     private var pendingInitialCalibration = false
     private var diagnosticMode = false
     private var sensorSampleSequence = 0L
     private var previousDeviceEuler: FloatArray? = null
     private var previousDisplayEuler: FloatArray? = null
+    private var menuOptionsOpen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,11 +99,13 @@ class MainActivity : Activity(), SensorEventListener {
         calibrateButton.setOnClickListener { calibratePose() }
         findViewById<View>(R.id.menuButton).setOnClickListener { toggleMenuOptions() }
         findViewById<ImageButton>(R.id.closeMenuButton).setOnClickListener { hideMenuOptions() }
-        findViewById<ImageButton>(R.id.multiplierButton).setOnClickListener { adjustmentPanel.visibility = View.VISIBLE }
+        findViewById<ImageButton>(R.id.multiplierButton).setOnClickListener { showAdjustmentPanel() }
+        findViewById<ImageButton>(R.id.closeAdjustmentButton).setOnClickListener { hideAdjustmentPanel() }
         findViewById<Button>(R.id.motionHoldButton).setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     view.isSelected = true
+                    motionHoldActive = true
                     gripOrientationLocked = true
                     sendButton("fn3", "down")
                     statusText.text = "已按住移动"
@@ -109,6 +113,7 @@ class MainActivity : Activity(), SensorEventListener {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.isSelected = false
+                    motionHoldActive = false
                     gripOrientationLocked = false
                     sendButton("fn3", "up")
                     latestRawAlignedMatrix?.let { updateGripOrientationIfNeeded(it) }
@@ -152,10 +157,13 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun toggleMenuOptions() {
-        if (menuOptions.visibility == View.VISIBLE) hideMenuOptions() else showMenuOptions()
+        if (menuOptionsOpen) hideMenuOptions() else showMenuOptions()
     }
 
     private fun showMenuOptions() {
+        menuOptionsOpen = true
+        menuOptions.animate().cancel()
+        hideAdjustmentPanel()
         menuOptions.translationX = slideDistance()
         menuOptions.alpha = 0f
         menuOptions.visibility = View.VISIBLE
@@ -163,9 +171,28 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun hideMenuOptions() {
-        if (menuOptions.visibility != View.VISIBLE) return
+        if (!menuOptionsOpen && menuOptions.visibility != View.VISIBLE) return
+        menuOptionsOpen = false
+        menuOptions.animate().cancel()
         menuOptions.animate().translationXBy(slideDistance()).alphaBy(-1f)
-            .withEndAction { menuOptions.visibility = View.GONE }.start()
+            .withEndAction {
+                if (!menuOptionsOpen) menuOptions.visibility = View.GONE
+            }.start()
+        hideAdjustmentPanel()
+    }
+
+    private fun showAdjustmentPanel() {
+        adjustmentPanel.animate().cancel()
+        adjustmentPanel.translationY = -12f * resources.displayMetrics.density
+        adjustmentPanel.alpha = 0f
+        adjustmentPanel.visibility = View.VISIBLE
+        adjustmentPanel.animate().translationY(0f).alpha(1f).setDuration(160).start()
+    }
+
+    private fun hideAdjustmentPanel() {
+        adjustmentPanel.animate().cancel()
+        adjustmentPanel.alpha = 1f
+        adjustmentPanel.translationY = 0f
         adjustmentPanel.visibility = View.GONE
     }
 
@@ -397,6 +424,7 @@ class MainActivity : Activity(), SensorEventListener {
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
                         .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", gripOrientation)
+                        .put("motionHold", motionHoldActive)
                         .put("sequence", ++poseSequence).put("sensorNanos", now)
                         .put("calibrate", calibrating)
                 )
