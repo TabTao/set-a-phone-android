@@ -29,6 +29,15 @@ class MotionPacketGateTest {
     }
 
     @Test
+    fun `握持方向切换时静止姿态也强制发送`() {
+        val gate = MotionPacketGate()
+        val pose = PoseAngles(1.0, 2.0, 3.0)
+        gate.next(pose, 0L)
+
+        assertEquals(MotionPacketKind.POSE, gate.next(pose, 20_000_000L, forcePose = true))
+    }
+
+    @Test
     fun `跨越正负一百八十度时按最短角度判断`() {
         val gate = MotionPacketGate(poseThresholdDegrees = 3.0)
         gate.next(PoseAngles(0.0, 179.0, 0.0), 0L)

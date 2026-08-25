@@ -406,7 +406,7 @@ class MainActivity : Activity(), SensorEventListener {
             )
         }
         latestRawAlignedMatrix = aligned.copyOf()
-        updateGripOrientationIfNeeded(aligned, now)
+        val gripOrientationChanged = updateGripOrientationIfNeeded(aligned, now)
         if (connected && pendingInitialCalibration) {
             pendingInitialCalibration = false
             calibratePose(aligned)
@@ -429,7 +429,7 @@ class MainActivity : Activity(), SensorEventListener {
             rotationVectorDegrees(relative)
         }
         val pose = mapDeviceRotationForGrip(calibrationGripOrientation ?: gripOrientation, deviceRotation)
-        when (motionPacketGate.next(pose, now, calibrating)) {
+        when (motionPacketGate.next(pose, now, calibrating || gripOrientationChanged)) {
             MotionPacketKind.POSE -> {
                 val sentPose = PoseAngles(roundPose(pose.pitch), roundPose(pose.yaw), roundPose(pose.roll))
                 // P/L 仅标记物理握持方向，Android 界面和预览始终保持竖屏。
@@ -517,19 +517,19 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
-    private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray, nowNanos: Long = System.nanoTime()) {
-        if (gripOrientationLocked) return
+    private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray, nowNanos: Long = System.nanoTime()): Boolean {
+        if (gripOrientationLocked) return false
         val grip = detectGripOrientation(rawAlignedMatrix)
         val correction180 = grip.coordinateCorrectionDegrees == 180
         if (!calibrationOrientationLocked) {
-            if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return
+            if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return false
             gripOrientation = grip.protocolValue
             gripCoordinateCorrection180 = correction180
             val canonicalMatrix = applyGripCorrection(rawAlignedMatrix, correction180)
             latestAlignedMatrix = canonicalMatrix.copyOf()
             poseReferenceMatrix = canonicalMatrix.copyOf()
             motionPacketGate.reset()
-            return
+            return true
         }
         val previousMatrix = previousGripMotionMatrix
         previousGripMotionMatrix = rawAlignedMatrix.copyOf()
@@ -537,22 +537,25 @@ class MainActivity : Activity(), SensorEventListener {
         if (motion != null && maxOf(abs(motion.x), abs(motion.y), abs(motion.z)) > GRIP_STABILITY_MAX_DELTA_DEGREES) {
             pendingGripOrientation = null
             pendingGripOrientationSinceNanos = 0L
-            return
+            return false
         }
         if (grip.protocolValue == gripOrientation) {
             pendingGripOrientation = null
             pendingGripOrientationSinceNanos = 0L
-            return
+            return false
         }
         if (pendingGripOrientation != grip) {
             pendingGripOrientation = grip
             pendingGripOrientationSinceNanos = nowNanos
-            return
+            return false
         }
-        if (nowNanos - pendingGripOrientationSinceNanos < GRIP_ORIENTATION_SETTLE_NANOS) return
+        if (nowNanos - pendingGripOrientationSinceNanos < GRIP_ORIENTATION_SETTLE_NANOS) return false
         gripOrientation = grip.protocolValue
         pendingGripOrientation = null
         pendingGripOrientationSinceNanos = 0L
+        // 握持稳定切换后必须马上携带新方向发一帧，否则静止时只会发心跳，
+        // PC 无法得知 P/L 已改变。
+        return true
     }
 
     private fun relativeRotation(reference: FloatArray, current: FloatArray): FloatArray {
