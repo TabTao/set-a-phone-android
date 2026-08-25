@@ -71,6 +71,7 @@ class MainActivity : Activity(), SensorEventListener {
     @Volatile private var gripOrientation = "portrait"
     @Volatile private var motionHoldActive = false
     @Volatile private var gripOrientationLocked = false
+    private var calibrationOrientationLocked = false
     private var pendingInitialCalibration = false
     private var diagnosticMode = false
     private var sensorSampleSequence = 0L
@@ -207,6 +208,7 @@ class MainActivity : Activity(), SensorEventListener {
             calibrationFramesRemaining = 0
             pendingInitialCalibration = false
             gripOrientationLocked = false
+            calibrationOrientationLocked = false
             previousDeviceEuler = null
             previousDisplayEuler = null
             motionPacketGate.reset()
@@ -490,6 +492,8 @@ class MainActivity : Activity(), SensorEventListener {
         val canonicalMatrix = applyGripCorrection(currentMatrix, gripCoordinateCorrection180)
         latestAlignedMatrix = canonicalMatrix.copyOf()
         poseReferenceMatrix = canonicalMatrix.copyOf()
+        // 归零基准必须持续到下一次显式归零；乱晃时的握持判断不能改写它。
+        calibrationOrientationLocked = true
         calibrationFramesRemaining = 3
         motionPacketGate.reset()
         if (connected) {
@@ -500,7 +504,7 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray) {
-        if (gripOrientationLocked) return
+        if (gripOrientationLocked || calibrationOrientationLocked) return
         val grip = detectGripOrientation(rawAlignedMatrix)
         val correction180 = grip.coordinateCorrectionDegrees == 180
         if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return
@@ -552,7 +556,7 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationOrientationLocked = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
