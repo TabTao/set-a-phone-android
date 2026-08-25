@@ -431,6 +431,7 @@ class MainActivity : Activity(), SensorEventListener {
         when (motionPacketGate.next(pose, now, calibrating)) {
             MotionPacketKind.POSE -> {
                 val sentPose = PoseAngles(roundPose(pose.pitch), roundPose(pose.yaw), roundPose(pose.roll))
+                // P/L 仅标记物理握持方向，Android 界面和预览始终保持竖屏。
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
                         .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", gripOrientation)
