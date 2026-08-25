@@ -30,6 +30,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 
 class MainActivity : Activity(), SensorEventListener {
     private val sender = Executors.newSingleThreadExecutor()
