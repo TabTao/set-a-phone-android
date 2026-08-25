@@ -69,6 +69,10 @@ class MainActivity : Activity(), SensorEventListener {
     private var gripCoordinateCorrection180 = false
     private var calibrationFramesRemaining = 0
     @Volatile private var gripOrientation = "portrait"
+    private var calibrationGripOrientation: String? = null
+    private var pendingGripOrientation: GripDisplayOrientation? = null
+    private var pendingGripOrientationSinceNanos = 0L
+    private var previousGripMotionMatrix: FloatArray? = null
     @Volatile private var motionHoldActive = false
     @Volatile private var gripOrientationLocked = false
     private var calibrationOrientationLocked = false
@@ -209,6 +213,10 @@ class MainActivity : Activity(), SensorEventListener {
             pendingInitialCalibration = false
             gripOrientationLocked = false
             calibrationOrientationLocked = false
+            calibrationGripOrientation = null
+            pendingGripOrientation = null
+            pendingGripOrientationSinceNanos = 0L
+            previousGripMotionMatrix = null
             previousDeviceEuler = null
             previousDisplayEuler = null
             motionPacketGate.reset()
@@ -397,7 +405,7 @@ class MainActivity : Activity(), SensorEventListener {
             )
         }
         latestRawAlignedMatrix = aligned.copyOf()
-        updateGripOrientationIfNeeded(aligned)
+        updateGripOrientationIfNeeded(aligned, now)
         if (connected && pendingInitialCalibration) {
             pendingInitialCalibration = false
             calibratePose(aligned)
@@ -419,7 +427,7 @@ class MainActivity : Activity(), SensorEventListener {
         } else {
             rotationVectorDegrees(relative)
         }
-        val pose = mapDeviceRotationForGrip(gripOrientation, deviceRotation)
+        val pose = mapDeviceRotationForGrip(calibrationGripOrientation ?: gripOrientation, deviceRotation)
         when (motionPacketGate.next(pose, now, calibrating)) {
             MotionPacketKind.POSE -> {
                 val sentPose = PoseAngles(roundPose(pose.pitch), roundPose(pose.yaw), roundPose(pose.roll))
@@ -489,6 +497,10 @@ class MainActivity : Activity(), SensorEventListener {
         val grip = detectGripOrientation(currentMatrix)
         gripOrientation = grip.protocolValue
         gripCoordinateCorrection180 = grip.coordinateCorrectionDegrees == 180
+        calibrationGripOrientation = grip.protocolValue
+        pendingGripOrientation = null
+        pendingGripOrientationSinceNanos = 0L
+        previousGripMotionMatrix = currentMatrix.copyOf()
         val canonicalMatrix = applyGripCorrection(currentMatrix, gripCoordinateCorrection180)
         latestAlignedMatrix = canonicalMatrix.copyOf()
         poseReferenceMatrix = canonicalMatrix.copyOf()
@@ -503,17 +515,42 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
-    private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray) {
-        if (gripOrientationLocked || calibrationOrientationLocked) return
+    private fun updateGripOrientationIfNeeded(rawAlignedMatrix: FloatArray, nowNanos: Long = System.nanoTime()) {
+        if (gripOrientationLocked) return
         val grip = detectGripOrientation(rawAlignedMatrix)
         val correction180 = grip.coordinateCorrectionDegrees == 180
-        if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return
+        if (!calibrationOrientationLocked) {
+            if (grip.protocolValue == gripOrientation && correction180 == gripCoordinateCorrection180) return
+            gripOrientation = grip.protocolValue
+            gripCoordinateCorrection180 = correction180
+            val canonicalMatrix = applyGripCorrection(rawAlignedMatrix, correction180)
+            latestAlignedMatrix = canonicalMatrix.copyOf()
+            poseReferenceMatrix = canonicalMatrix.copyOf()
+            motionPacketGate.reset()
+            return
+        }
+        val previousMatrix = previousGripMotionMatrix
+        previousGripMotionMatrix = rawAlignedMatrix.copyOf()
+        val motion = previousMatrix?.let { rotationVectorDegrees(relativeRotation(it, rawAlignedMatrix)) }
+        if (motion != null && maxOf(abs(motion.x), abs(motion.y), abs(motion.z)) > GRIP_STABILITY_MAX_DELTA_DEGREES) {
+            pendingGripOrientation = null
+            pendingGripOrientationSinceNanos = 0L
+            return
+        }
+        if (grip.protocolValue == gripOrientation) {
+            pendingGripOrientation = null
+            pendingGripOrientationSinceNanos = 0L
+            return
+        }
+        if (pendingGripOrientation != grip) {
+            pendingGripOrientation = grip
+            pendingGripOrientationSinceNanos = nowNanos
+            return
+        }
+        if (nowNanos - pendingGripOrientationSinceNanos < GRIP_ORIENTATION_SETTLE_NANOS) return
         gripOrientation = grip.protocolValue
-        gripCoordinateCorrection180 = correction180
-        val canonicalMatrix = applyGripCorrection(rawAlignedMatrix, correction180)
-        latestAlignedMatrix = canonicalMatrix.copyOf()
-        poseReferenceMatrix = canonicalMatrix.copyOf()
-        motionPacketGate.reset()
+        pendingGripOrientation = null
+        pendingGripOrientationSinceNanos = 0L
     }
 
     private fun relativeRotation(reference: FloatArray, current: FloatArray): FloatArray {
@@ -556,10 +593,12 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationOrientationLocked = false; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationOrientationLocked = false; calibrationGripOrientation = null; pendingGripOrientation = null; pendingGripOrientationSinceNanos = 0L; previousGripMotionMatrix = null; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
     override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
+        private const val GRIP_ORIENTATION_SETTLE_NANOS = 400_000_000L
+        private const val GRIP_STABILITY_MAX_DELTA_DEGREES = 3.0
         private val IDENTITY_ROTATION = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
     }
 }
