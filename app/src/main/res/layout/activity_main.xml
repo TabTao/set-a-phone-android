@@ -181,13 +181,13 @@
         android:paddingStart="18dp"
         android:paddingEnd="18dp">
         <Button
-            android:id="@+id/motionHoldButton"
+            android:id="@+id/motionModeButton"
             style="@style/CameraIconButton"
             android:layout_width="88dp"
             android:layout_height="48dp"
             android:layout_marginEnd="18dp"
-            android:contentDescription="按住切换姿态平移"
-            android:text="按住移动" />
+            android:contentDescription="切换到XYH双指操作"
+            android:text="PRY" />
         <Button
             android:id="@+id/shutterButton"
             android:layout_width="104dp"

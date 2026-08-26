@@ -9,6 +9,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.view.MotionEvent
 import android.view.View
@@ -48,6 +50,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var statusText: TextView
     private lateinit var connectButton: Button
     private lateinit var calibrateButton: Button
+    private lateinit var motionModeButton: Button
     private lateinit var cameraPreview: ImageView
     private lateinit var menuOptions: View
     private lateinit var adjustmentPanel: View
@@ -74,7 +77,18 @@ class MainActivity : Activity(), SensorEventListener {
     private var pendingGripOrientation: GripDisplayOrientation? = null
     private var pendingGripOrientationSinceNanos = 0L
     private var previousGripMotionMatrix: FloatArray? = null
-    @Volatile private var motionHoldActive = false
+    @Volatile private var xyhModeActive = false
+    private val twoFingerXyhGesture = TwoFingerXyhGesture()
+    private var touchXyhSequence = 0L
+    private val touchXyhHandler = Handler(Looper.getMainLooper())
+    private var latestTouchXyhDisplacement = XyhTouchDisplacement(0f, 0f, 0f)
+    private val touchXyhRepeater = object : Runnable {
+        override fun run() {
+            if (!xyhModeActive || !twoFingerXyhGesture.active) return
+            sendXyhTouch(latestTouchXyhDisplacement)
+            touchXyhHandler.postDelayed(this, TOUCH_XYH_SEND_INTERVAL_MILLIS)
+        }
+    }
     @Volatile private var gripOrientationLocked = false
     private var calibrationOrientationLocked = false
     private var pendingInitialCalibration = false
@@ -94,6 +108,7 @@ class MainActivity : Activity(), SensorEventListener {
         statusText = findViewById(R.id.statusText)
         connectButton = findViewById(R.id.connectButton)
         calibrateButton = findViewById(R.id.calibrateButton)
+        motionModeButton = findViewById(R.id.motionModeButton)
         cameraPreview = findViewById(R.id.cameraPreview)
         menuOptions = findViewById(R.id.menuOptions)
         adjustmentPanel = findViewById(R.id.adjustmentPanel)
@@ -107,28 +122,8 @@ class MainActivity : Activity(), SensorEventListener {
         findViewById<ImageButton>(R.id.closeMenuButton).setOnClickListener { hideMenuOptions() }
         findViewById<ImageButton>(R.id.multiplierButton).setOnClickListener { showAdjustmentPanel() }
         findViewById<ImageButton>(R.id.closeAdjustmentButton).setOnClickListener { hideAdjustmentPanel() }
-        findViewById<Button>(R.id.motionHoldButton).setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    view.isSelected = true
-                    motionHoldActive = true
-                    gripOrientationLocked = true
-                    sendButton("fn3", "down")
-                    statusText.text = "已按住移动"
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    view.isSelected = false
-                    motionHoldActive = false
-                    gripOrientationLocked = false
-                    sendButton("fn3", "up")
-                    latestRawAlignedMatrix?.let { updateGripOrientationIfNeeded(it) }
-                    if (connected) statusText.text = "已连接 $host:18888"
-                    true
-                }
-                else -> true
-            }
-        }
+        motionModeButton.setOnClickListener { toggleXyhMode() }
+        cameraPreview.setOnTouchListener { _, event -> handleXyhTouch(event) }
         val diagnosticButton = findViewById<ImageButton>(R.id.diagnosticButton)
         diagnosticButton.setOnClickListener {
             diagnosticMode = !diagnosticMode
@@ -204,6 +199,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun toggleConnection() {
         if (connected) {
+            stopXyhTouch()
             send(JSONObject().put("type", "focus").put("active", false))
             connected = false
             latestAlignedMatrix = null
@@ -236,12 +232,73 @@ class MainActivity : Activity(), SensorEventListener {
         statusText.text = "已连接 $host:18888"
         calibratePose()
         send(JSONObject().put("type", "slider").put("value", rotationScale))
+        sendControlMode()
     }
 
     private fun sendButton(button: String, action: String) = send(
         JSONObject().put("type", "button").put("button", button).put("action", action)
             .put("orientation", gripOrientation)
     )
+
+    private fun toggleXyhMode() {
+        if (xyhModeActive) stopXyhTouch()
+        xyhModeActive = !xyhModeActive
+        motionModeButton.isSelected = xyhModeActive
+        motionModeButton.text = if (xyhModeActive) "XYH" else "PRY"
+        motionModeButton.contentDescription = if (xyhModeActive) "切换到PRY姿态操作" else "切换到XYH双指操作"
+        sendControlMode()
+        statusText.text = if (xyhModeActive) "XYH 双指操作已开启" else "PRY 姿态操作已开启"
+    }
+
+    private fun sendControlMode() = send(
+        JSONObject().put("type", "control_mode").put("mode", if (xyhModeActive) "xyh" else "pry")
+    )
+
+    private fun handleXyhTouch(event: MotionEvent): Boolean {
+        if (!xyhModeActive) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> Unit
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount == 2) {
+                    if (twoFingerXyhGesture.begin(event.touchPoints())) startXyhTouch()
+                } else {
+                    stopXyhTouch()
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val displacement = twoFingerXyhGesture.update(event.touchPoints())
+                if (displacement != null) {
+                    latestTouchXyhDisplacement = displacement
+                    sendXyhTouch(displacement)
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> stopXyhTouch()
+        }
+        return true
+    }
+
+    private fun MotionEvent.touchPoints(): List<TouchPoint> = List(pointerCount) { index ->
+        TouchPoint(getPointerId(index), getX(index), getY(index))
+    }
+
+    private fun sendXyhTouch(displacement: XyhTouchDisplacement) = send(
+        JSONObject().put("type", "touch_xyh").put("active", true)
+            .put("x", displacement.x).put("y", displacement.y).put("h", displacement.h)
+            .put("sequence", ++touchXyhSequence).put("eventNanos", System.nanoTime())
+    )
+
+    private fun startXyhTouch() {
+        latestTouchXyhDisplacement = XyhTouchDisplacement(0f, 0f, 0f)
+        touchXyhHandler.removeCallbacks(touchXyhRepeater)
+        touchXyhHandler.post(touchXyhRepeater)
+    }
+
+    private fun stopXyhTouch() {
+        touchXyhHandler.removeCallbacks(touchXyhRepeater)
+        if (twoFingerXyhGesture.end()) {
+            send(JSONObject().put("type", "touch_xyh").put("active", false))
+        }
+    }
 
     private fun send(payload: JSONObject) {
         if (!connected || host.isBlank()) return
@@ -436,7 +493,7 @@ class MainActivity : Activity(), SensorEventListener {
                 sendPose(
                     JSONObject().put("type", "pose").put("pitch", sentPose.pitch)
                         .put("yaw", sentPose.yaw).put("roll", sentPose.roll).put("orientation", gripOrientation)
-                        .put("motionHold", motionHoldActive)
+                        .put("motionHold", false)
                         .put("sequence", ++poseSequence).put("sensorNanos", now)
                         .put("calibrate", calibrating)
                 )
@@ -598,10 +655,11 @@ class MainActivity : Activity(), SensorEventListener {
         )
         return corrected
     }
-    override fun onPause() { stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationOrientationLocked = false; calibrationGripOrientation = null; pendingGripOrientation = null; pendingGripOrientationSinceNanos = 0L; previousGripMotionMatrix = null; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
-    override fun onDestroy() { stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
+    override fun onPause() { stopXyhTouch(); stopPreview(); poseReferenceMatrix = null; latestAlignedMatrix = null; latestRawAlignedMatrix = null; gripCoordinateCorrection180 = false; gripOrientationLocked = false; calibrationOrientationLocked = false; calibrationGripOrientation = null; pendingGripOrientation = null; pendingGripOrientationSinceNanos = 0L; previousGripMotionMatrix = null; calibrationFramesRemaining = 0; pendingInitialCalibration = false; previousDeviceEuler = null; previousDisplayEuler = null; motionPacketGate.reset(); if (connected) send(JSONObject().put("type", "focus").put("active", false)); sensorManager.unregisterListener(this); super.onPause() }
+    override fun onDestroy() { stopXyhTouch(); stopPreview(); udpSocket?.close(); sender.shutdownNow(); previewReceiver.shutdownNow(); super.onDestroy() }
 
     companion object {
+        private const val TOUCH_XYH_SEND_INTERVAL_MILLIS = 33L
         private const val GRIP_ORIENTATION_SETTLE_NANOS = 400_000_000L
         private const val GRIP_STABILITY_MAX_DELTA_DEGREES = 3.0
         private val IDENTITY_ROTATION = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
