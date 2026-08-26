@@ -20,8 +20,8 @@ class TwoFingerXyhGestureTest {
             TouchPoint(3, 40f, 460f),
         ))
 
-        assertEquals(60f, displacement?.x)
-        assertEquals(50f, displacement?.y)
+        assertEquals(-60f, displacement?.x)
+        assertEquals(-50f, displacement?.y)
         assertEquals(-60f, displacement?.h)
     }
 

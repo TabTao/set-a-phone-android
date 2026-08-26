@@ -32,8 +32,8 @@ class TwoFingerXyhGesture {
         val currentLeft = pointsById[left.id] ?: return null
         val currentRight = pointsById[right.id] ?: return null
         return XyhTouchDisplacement(
-            x = currentRight.x - right.x,
-            y = right.y - currentRight.y,
+            x = right.x - currentRight.x,
+            y = currentRight.y - right.y,
             h = left.y - currentLeft.y,
         )
     }
