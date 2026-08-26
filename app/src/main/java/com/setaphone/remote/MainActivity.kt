@@ -246,18 +246,8 @@ class MainActivity : Activity(), SensorEventListener {
         motionModeButton.isSelected = xyhModeActive
         motionModeButton.text = if (xyhModeActive) "XYH" else "PRY"
         motionModeButton.contentDescription = if (xyhModeActive) "切换到PRY姿态操作" else "切换到XYH双指操作"
-        updateXyhControlLock()
         sendControlMode()
         statusText.text = if (xyhModeActive) "XYH 双指操作已开启" else "PRY 姿态操作已开启"
-    }
-
-    private fun updateXyhControlLock() {
-        val enabled = !xyhModeActive
-        if (!enabled) {
-            hideMenuOptions()
-            hideAdjustmentPanel()
-        }
-        XYH_DISABLED_CONTROL_IDS.forEach { id -> findViewById<View>(id).isEnabled = enabled }
     }
 
     private fun sendControlMode() = send(
@@ -670,18 +660,6 @@ class MainActivity : Activity(), SensorEventListener {
 
     companion object {
         private const val TOUCH_XYH_SEND_INTERVAL_MILLIS = 33L
-        private val XYH_DISABLED_CONTROL_IDS = intArrayOf(
-            R.id.connectButton,
-            R.id.shutterButton,
-            R.id.calibrateButton,
-            R.id.menuButton,
-            R.id.closeMenuButton,
-            R.id.multiplierButton,
-            R.id.closeAdjustmentButton,
-            R.id.diagnosticButton,
-            R.id.previewModeButton,
-            R.id.pitchScale,
-        )
         private const val GRIP_ORIENTATION_SETTLE_NANOS = 400_000_000L
         private const val GRIP_STABILITY_MAX_DELTA_DEGREES = 3.0
         private val IDENTITY_ROTATION = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
